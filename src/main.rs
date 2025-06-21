@@ -10,7 +10,6 @@ mod constants;
 
 use gdk::Display;
 use gtk::prelude::*;
-use gtk::subclass::list_box_row;
 use gtk::{CssProvider, Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use tracing::debug;
@@ -77,6 +76,7 @@ fn activate(application: &gtk::Application) {
             }
         }
     });
+    let triggers = vec!["g", "s"];
 
     // Lista de opciones para autocompletar
     let options = vec![
@@ -155,6 +155,13 @@ fn activate(application: &gtk::Application) {
     // Filtrado manual al escribir
     entry.connect_changed(move |e| {
         let text = e.text().to_string().to_lowercase();
+        if text.contains(" ") {
+            let trigger = text.split_whitespace().collect::<Vec<&str>>()[0];
+            if triggers.contains(&trigger) {
+                debug!("trigger: {:?}", trigger);
+                return;
+            }
+        }
         debug!("text: {}", text);
 
         // Limpiar el modelo
