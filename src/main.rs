@@ -6,7 +6,9 @@
 // and is licensed under the MIT License. See the LICENSE file for details.
 //
 
+mod config;
 mod constants;
+mod css;
 
 use gdk::Display;
 use gtk::prelude::*;
@@ -194,6 +196,11 @@ fn activate(application: &gtk::Application) {
 
 fn main() {
     tracing_subscriber::fmt().with_env_filter("debug").init();
+    match gtk::init() {
+        Ok(result) => debug!("GTK initialized successfully: {:?}", result),
+        Err(err) => debug!("Failed to initialize GTK: {}", err),
+    }
+    let config = config::Config::load().expect("Can not load config file");
 
     let application = gtk::Application::new(Some(APP_ID), Default::default());
 
@@ -201,39 +208,13 @@ fn main() {
         activate(app);
     });
     application.connect_startup(|_| {
-            let provider = CssProvider::new();
-            // El CSS que hace la magia:
-            let css_data = "
-                .transparente {
-                    background-color: rgba(0, 0, 0, 0); /* RGBA con alfa 0 (completamente transparente) */
-                    background-image: none; /* Asegura que no haya imagen de fondo */
-                }
-                #lila-listbox {
-                    border-radius: 10px;
-                }
-                .overlay {
-                    -gtk-render-background: false; /* Importante para que GTK no dibuje el fondo */
-                    /* Otras propiedades que pueden ser útiles para un overlay: */
-                    /* Establece que las áreas transparentes no deben interceptar eventos de ratón */
-                    background-clip: padding-box; /* Asegura que el fondo solo se aplique al padding box */
-                }
-                .mi-texto-bonito {
-                    color: white; /* Para que el texto sea visible en un fondo transparente */
-                    font-size: 24px;
-                    background-color: rgba(0, 0, 0, 0.5); /* Un fondo semitransparente para el texto */
-                    padding: 10px;
-                    border-radius: 5px;
-                }
-            ";
-            provider.load_from_string(css_data);
-
-            // Asegúrate de aplicar el CSS a la pantalla por defecto
-            gtk::style_context_add_provider_for_display(
-                &Display::default().expect("Could not connect to a display."),
-                &provider,
-                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
-        });
+        let provider = css::Css::load().expect("Can not load CSS file");
+        gtk::style_context_add_provider_for_display(
+            &Display::default().expect("Could not connect to a display."),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    });
 
     application.run();
 }
