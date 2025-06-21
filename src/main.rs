@@ -90,23 +90,9 @@ fn activate(application: &gtk::Application) {
     ];
     // Crear el controller para detectar teclas
     let window_clone = window.clone();
-    let key_controller = gtk::EventControllerKey::new();
-    key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
-        println!("Tecla pulsada: {:?}", keyval.name());
-        // Por ejemplo, detectar Enter
-        if keyval == gdk::Key::Escape {
-            println!("Se pulsó Escape");
-            window_clone.set_visible(false);
-        }
-        if keyval == gdk::Key::Return {
-            println!("Se pulsó Enter");
-        }
-        false.into()
-    });
 
     // Entry donde el usuario escribe
     let entry = gtk::Entry::new();
-    entry.add_controller(key_controller);
 
     // ListBox para mostrar sugerencias
     let scroll = ScrolledWindow::builder()
@@ -116,15 +102,52 @@ fn activate(application: &gtk::Application) {
 
     let listbox = ListBox::builder().name(LISTBOX_NAME).build();
     scroll.set_child(Some(&listbox));
+    scroll.set_can_focus(false);
     listbox.set_visible(false);
+    listbox.set_can_focus(false);
 
-    let entry_clone = entry.clone();
+    let key_controller = gtk::EventControllerKey::new();
+    key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
+        println!("Tecla pulsada: {:?}", keyval.name());
+        // Por ejemplo, detectar Enter
+        if keyval == gdk::Key::Escape {
+            println!("Se pulsó Escape");
+            window_clone.set_visible(false);
+            true.into()
+        } else if keyval == gdk::Key::Return {
+            println!("Se pulsó Enter");
+            true.into()
+        } else {
+            false.into()
+        }
+    });
+    entry.add_controller(key_controller);
+    let entry_clone_for_activate = entry.clone();
+    let listbox_clone = listbox.clone();
+    entry.connect_activate(move |_| {
+        let entered_text = entry_clone_for_activate.text();
+        println!("Texto introducido (señal activate): \"{}\"", entered_text);
+        if let Some(first_row) = listbox_clone.row_at_index(0) {
+            if let Some(widget) = first_row.child() {
+                if let Ok(label) = widget.downcast::<Label>() {
+                    debug!("Selected text: {}", label.text());
+                    entry_clone_for_activate.set_text(&label.text());
+                    entry_clone_for_activate.set_position(-1);
+                }
+            }
+        }
+        // Opcional: borrar el Entry después de procesar
+        // entry_clone.set_text("");
+    });
+
+    let entry_clone_for_listbox = entry.clone();
     listbox.connect_selected_rows_changed(move |d| {
         if let Some(selected_row) = d.selected_row() {
             if let Some(widget) = selected_row.child() {
                 if let Ok(label) = widget.downcast::<Label>() {
-                    println!("Selected text: {}", label.text());
-                    entry_clone.set_text(&label.text());
+                    debug!("Selected text: {}", label.text());
+                    entry_clone_for_listbox.set_text(&label.text());
+                    entry_clone_for_listbox.set_position(-1);
                 }
             }
         }
@@ -155,21 +178,8 @@ fn activate(application: &gtk::Application) {
         listbox.set_visible(!filtered_options.is_empty() && !e.text().is_empty());
     });
 
-    // Cuando el usuario selecciona una opción, ponerla en el Entry
-    /*
-    let entry_clone = entry.clone();
-    dropdown.connect_selected_notify(move |d| {
-        if let Some(selected_item) = d.selected_item() {
-            if let Some(string_obj) = selected_item.downcast_ref::<gtk::StringObject>() {
-                entry_clone.set_text(&string_obj.string());
-            }
-        }
-    });
-    */
-
     vbox.append(&entry);
     vbox.append(&scroll);
-
     window.set_child(Some(&vbox));
 
     window.present();
