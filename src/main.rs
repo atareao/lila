@@ -1,53 +1,222 @@
-use gio::prelude::*;
+// SPDX-License-Identifier: MIT
+//
+// Copyright (c) 2025 Lorenzo Carbonell
+//
+// This file is part of the LiLa project,
+// and is licensed under the MIT License. See the LICENSE file for details.
+//
+
+mod constants;
+
+use gdk::Display;
 use gtk::prelude::*;
+use gtk::subclass::list_box_row;
+use gtk::{CssProvider, Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use tracing::debug;
+use tracing_subscriber;
+
+use constants::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
 fn activate(application: &gtk::Application) {
     // Create a normal GTK window however you like
     let window = gtk::ApplicationWindow::new(application);
+    window.add_css_class("transparente");
 
     // Before the window is first realized, set it up to be a layer surface
     window.init_layer_shell();
+    window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::Exclusive);
+    window.set_namespace(Some(APP_NAME));
 
     // Display above normal windows
     window.set_layer(Layer::Overlay);
+    window.set_decorated(false);
+    window.set_focusable(true);
 
     // Push other windows out of the way
     window.auto_exclusive_zone_enable();
 
     // The margins are the gaps around the window's edges
     // Margins and anchors can be set like this...
-    window.set_margin(Edge::Left, 40);
-    window.set_margin(Edge::Right, 40);
-    window.set_margin(Edge::Top, 20);
+    let margin = 100;
+    window.set_margin(Edge::Left, margin);
+    window.set_margin(Edge::Right, margin);
+    window.set_margin(Edge::Top, margin);
+    window.set_margin(Edge::Bottom, margin);
 
     // ... or like this
     // Anchors are if the window is pinned to each edge of the output
     let anchors = [
-        (Edge::Left, true),
-        (Edge::Right, true),
+        (Edge::Left, false),
+        (Edge::Right, false),
         (Edge::Top, false),
-        (Edge::Bottom, true),
+        (Edge::Bottom, false),
     ];
 
     for (anchor, state) in anchors {
         window.set_anchor(anchor, state);
     }
 
-    // Set up a widget
-    let label = gtk::Label::new(Some(""));
-    label.set_markup("<span font_desc=\"20.0\">GTK Layer Shell example!</span>");
-    window.set_child(Some(&label));
-    window.show()
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    vbox.set_margin_start(10);
+    vbox.set_margin_end(10);
+    vbox.set_margin_top(10);
+    vbox.set_margin_bottom(10);
+
+    window.connect_is_active_notify(|win| {
+        debug!("{:?}", win.is_active());
+        println!("{:?}", win);
+    });
+    window.connect_notify_local(Some("is-active"), move |win, _| {
+        debug!("{:?}", win.is_active());
+        match win.is_active() {
+            true => (),
+            false => {
+                win.close();
+            }
+        }
+    });
+
+    // Lista de opciones para autocompletar
+    let options = vec![
+        "Rust",
+        "Ruby",
+        "Python",
+        "Perl",
+        "PHP",
+        "Java",
+        "JavaScript",
+    ];
+    // Crear el controller para detectar teclas
+    let window_clone = window.clone();
+    let key_controller = gtk::EventControllerKey::new();
+    key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
+        println!("Tecla pulsada: {:?}", keyval.name());
+        // Por ejemplo, detectar Enter
+        if keyval == gdk::Key::Escape {
+            println!("Se pulsó Escape");
+            window_clone.set_visible(false);
+        }
+        if keyval == gdk::Key::Return {
+            println!("Se pulsó Enter");
+        }
+        false.into()
+    });
+
+    // Entry donde el usuario escribe
+    let entry = gtk::Entry::new();
+    entry.add_controller(key_controller);
+
+    // ListBox para mostrar sugerencias
+    let scroll = ScrolledWindow::builder()
+        .name(SCROLL_NAME)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .build();
+
+    let listbox = ListBox::builder().name(LISTBOX_NAME).build();
+    scroll.set_child(Some(&listbox));
+    listbox.set_visible(false);
+
+    let entry_clone = entry.clone();
+    listbox.connect_selected_rows_changed(move |d| {
+        if let Some(selected_row) = d.selected_row() {
+            if let Some(widget) = selected_row.child() {
+                if let Ok(label) = widget.downcast::<Label>() {
+                    println!("Selected text: {}", label.text());
+                    entry_clone.set_text(&label.text());
+                }
+            }
+        }
+    });
+    // Filtrado manual al escribir
+    entry.connect_changed(move |e| {
+        let text = e.text().to_string().to_lowercase();
+        debug!("text: {}", text);
+
+        // Limpiar el modelo
+        listbox.remove_all();
+
+        // Agregar opciones filtradas
+        let filtered_options: Vec<&str> = options
+            .iter()
+            .filter(|option| option.to_lowercase().contains(&text))
+            .copied()
+            .collect();
+
+        for option in filtered_options.as_slice() {
+            let label = Label::new(Some(option));
+            listbox.append(&label);
+        }
+
+        debug!("Number of items: {}", filtered_options.len());
+
+        // Mostrar/ocultar según haya coincidencias
+        listbox.set_visible(!filtered_options.is_empty() && !e.text().is_empty());
+    });
+
+    // Cuando el usuario selecciona una opción, ponerla en el Entry
+    /*
+    let entry_clone = entry.clone();
+    dropdown.connect_selected_notify(move |d| {
+        if let Some(selected_item) = d.selected_item() {
+            if let Some(string_obj) = selected_item.downcast_ref::<gtk::StringObject>() {
+                entry_clone.set_text(&string_obj.string());
+            }
+        }
+    });
+    */
+
+    vbox.append(&entry);
+    vbox.append(&scroll);
+
+    window.set_child(Some(&vbox));
+
+    window.present();
 }
 
 fn main() {
-    let application = gtk::Application::new(Some("sh.wmww.gtk-layer-example"), Default::default());
+    tracing_subscriber::fmt().with_env_filter("debug").init();
+
+    let application = gtk::Application::new(Some(APP_ID), Default::default());
 
     application.connect_activate(|app| {
         activate(app);
     });
+    application.connect_startup(|_| {
+            let provider = CssProvider::new();
+            // El CSS que hace la magia:
+            let css_data = "
+                .transparente {
+                    background-color: rgba(0, 0, 0, 0); /* RGBA con alfa 0 (completamente transparente) */
+                    background-image: none; /* Asegura que no haya imagen de fondo */
+                }
+                #lila-listbox {
+                    border-radius: 10px;
+                }
+                .overlay {
+                    -gtk-render-background: false; /* Importante para que GTK no dibuje el fondo */
+                    /* Otras propiedades que pueden ser útiles para un overlay: */
+                    /* Establece que las áreas transparentes no deben interceptar eventos de ratón */
+                    background-clip: padding-box; /* Asegura que el fondo solo se aplique al padding box */
+                }
+                .mi-texto-bonito {
+                    color: white; /* Para que el texto sea visible en un fondo transparente */
+                    font-size: 24px;
+                    background-color: rgba(0, 0, 0, 0.5); /* Un fondo semitransparente para el texto */
+                    padding: 10px;
+                    border-radius: 5px;
+                }
+            ";
+            provider.load_from_string(css_data);
+
+            // Asegúrate de aplicar el CSS a la pantalla por defecto
+            gtk::style_context_add_provider_for_display(
+                &Display::default().expect("Could not connect to a display."),
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        });
 
     application.run();
 }
