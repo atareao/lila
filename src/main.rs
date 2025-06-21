@@ -11,6 +11,8 @@ mod constants;
 mod css;
 
 use config::Config;
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use gdk::Display;
 use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
@@ -166,21 +168,32 @@ fn activate(application: &gtk::Application, config: &Arc<Config>) {
         listbox.remove_all();
 
         // Agregar opciones filtradas
-        let filtered_options: Vec<&str> = options
-            .iter()
-            .filter(|option| option.to_lowercase().contains(&text))
-            .copied()
-            .collect();
+        let matcher = SkimMatcherV2::default();
 
-        for option in filtered_options.as_slice() {
+        let mut filtered_and_scored_options: Vec<(&str, i64)> = options
+            .iter()
+            .filter_map(|&option| {
+                let result = matcher.fuzzy_match(option, &text);
+                debug!("option: {:?}, result: {:?}", option, result);
+
+                result.map(|score| (option, score)) // If result is Some(score), transform to (option, score)
+            })
+            .collect(); // Collect into a Vec of (option, score) tuples
+        filtered_and_scored_options.sort_by(|a, b| b.1.cmp(&a.1));
+        let result = filtered_and_scored_options
+            .into_iter() // Use into_iter to consume the vector and avoid an extra copy
+            .map(|(option, _score)| option)
+            .collect::<Vec<&str>>();
+
+        for option in result.as_slice() {
             let label = Label::new(Some(option));
             listbox.append(&label);
         }
 
-        debug!("Number of items: {}", filtered_options.len());
+        debug!("Number of items: {}", result.len());
 
         // Mostrar/ocultar según haya coincidencias
-        listbox.set_visible(!filtered_options.is_empty() && !e.text().is_empty());
+        listbox.set_visible(!result.is_empty() && !e.text().is_empty());
     });
 
     vbox.append(&entry);
