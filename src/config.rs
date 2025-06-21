@@ -4,9 +4,35 @@ use std::{fs, path::PathBuf};
 use tracing::{debug, error};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Edge {
+    #[serde(default)]
+    pub margin: i32,
+    #[serde(default)]
+    pub anchor: bool,
+}
+impl Default for Edge {
+    fn default() -> Self {
+        Edge {
+            margin: 100,
+            anchor: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Config {
-    pub width: u32,
-    pub height: u32,
+    #[serde(default)]
+    pub width: i32,
+    #[serde(default)]
+    pub height: i32,
+    #[serde(default)]
+    pub left: Edge,
+    #[serde(default)]
+    pub right: Edge,
+    #[serde(default)]
+    pub top: Edge,
+    #[serde(default)]
+    pub bottom: Edge,
 }
 
 impl Config {
@@ -43,6 +69,10 @@ impl Default for Config {
         Config {
             width: 800,
             height: 600,
+            left: Edge::default(),
+            right: Edge::default(),
+            top: Edge::default(),
+            bottom: Edge::default(),
         }
     }
 }

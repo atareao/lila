@@ -10,19 +10,22 @@ mod config;
 mod constants;
 mod css;
 
+use config::Config;
 use gdk::Display;
 use gtk::prelude::*;
-use gtk::{CssProvider, Label, ListBox, ScrolledWindow};
+use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use std::sync::Arc;
 use tracing::debug;
 use tracing_subscriber;
 
 use constants::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
-fn activate(application: &gtk::Application) {
+fn activate(application: &gtk::Application, config: &Arc<Config>) {
     // Create a normal GTK window however you like
     let window = gtk::ApplicationWindow::new(application);
+    window.set_size_request(config.width, config.height);
     window.add_css_class("transparente");
 
     // Before the window is first realized, set it up to be a layer surface
@@ -38,25 +41,17 @@ fn activate(application: &gtk::Application) {
     // Push other windows out of the way
     window.auto_exclusive_zone_enable();
 
-    // The margins are the gaps around the window's edges
-    // Margins and anchors can be set like this...
-    let margin = 100;
-    window.set_margin(Edge::Left, margin);
-    window.set_margin(Edge::Right, margin);
-    window.set_margin(Edge::Top, margin);
-    window.set_margin(Edge::Bottom, margin);
-
-    // ... or like this
     // Anchors are if the window is pinned to each edge of the output
     let anchors = [
-        (Edge::Left, false),
-        (Edge::Right, false),
-        (Edge::Top, false),
-        (Edge::Bottom, false),
+        (Edge::Left, config.left),
+        (Edge::Right, config.right),
+        (Edge::Top, config.top),
+        (Edge::Bottom, config.bottom),
     ];
 
-    for (anchor, state) in anchors {
-        window.set_anchor(anchor, state);
+    for (anchor, edge_config) in anchors {
+        window.set_margin(anchor, edge_config.margin);
+        window.set_anchor(anchor, edge_config.anchor);
     }
 
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 10);
@@ -101,6 +96,7 @@ fn activate(application: &gtk::Application) {
         .name(SCROLL_NAME)
         .hscrollbar_policy(gtk::PolicyType::Never)
         .build();
+    scroll.set_size_request(config.width, config.height);
 
     let listbox = ListBox::builder().name(LISTBOX_NAME).build();
     scroll.set_child(Some(&listbox));
@@ -200,12 +196,11 @@ fn main() {
         Ok(result) => debug!("GTK initialized successfully: {:?}", result),
         Err(err) => debug!("Failed to initialize GTK: {}", err),
     }
-    let config = config::Config::load().expect("Can not load config file");
-
+    let config = Arc::new(config::Config::load().expect("Can not load config file"));
     let application = gtk::Application::new(Some(APP_ID), Default::default());
-
-    application.connect_activate(|app| {
-        activate(app);
+    let config_clone = Arc::clone(&config);
+    application.connect_activate(move |app| {
+        activate(app, &config_clone);
     });
     application.connect_startup(|_| {
         let provider = css::Css::load().expect("Can not load CSS file");
