@@ -1,4 +1,6 @@
+use super::super::finders::{ApplicationFinder, Finder};
 use super::super::utils::*;
+use super::Extension;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -20,7 +22,7 @@ impl Default for Edge {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub width: i32,
@@ -34,6 +36,8 @@ pub struct Config {
     pub top: Edge,
     #[serde(default)]
     pub bottom: Edge,
+    #[serde(default)]
+    pub extensions: Vec<Extension>,
 }
 
 impl Config {
@@ -45,7 +49,7 @@ impl Config {
             if !config_dir.exists() {
                 std::fs::create_dir_all(&config_dir)?;
             }
-            config_dir.push("config.yaml");
+            config_dir.push("config.yml");
             if config_dir.exists() {
                 let file = std::fs::File::open(config_dir)?;
                 let config: Config = serde_yaml::from_reader(file)?;
@@ -68,6 +72,13 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let extensions = vec![Extension::new(
+            "application-finder".to_string(),
+            None,
+            Some("An extension to launch applications".to_string()),
+            Finder::ApplicationFinder(ApplicationFinder::new()),
+            Some(1800),
+        )];
         Config {
             width: 800,
             height: 600,
@@ -75,6 +86,7 @@ impl Default for Config {
             right: Edge::default(),
             top: Edge::default(),
             bottom: Edge::default(),
+            extensions,
         }
     }
 }

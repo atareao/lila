@@ -6,6 +6,8 @@
 // and is licensed under the MIT License. See the LICENSE file for details.
 //
 
+mod actions;
+mod finders;
 mod models;
 mod utils;
 
@@ -16,13 +18,17 @@ use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use models::{Config, Css};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::debug;
 use tracing_subscriber;
 use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
-fn activate(application: &gtk::Application, config: &Arc<Config>) {
+fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
+    let config;
+    {
+        config = mutex_config.lock().unwrap();
+    }
     // Create a normal GTK window however you like
     let window = gtk::ApplicationWindow::new(application);
     window.set_size_request(config.width, config.height);
@@ -207,7 +213,15 @@ fn main() {
         Ok(result) => debug!("GTK initialized successfully: {:?}", result),
         Err(err) => debug!("Failed to initialize GTK: {}", err),
     }
-    let config = Arc::new(Config::load().expect("Can not load config file"));
+    let config = Arc::new(Mutex::new(
+        Config::load().expect("Can not load config file"),
+    ));
+    {
+        let mut config_guard = config.lock().unwrap(); // 🔓
+        for extension in config_guard.extensions.iter_mut() {
+            extension.finder.init();
+        }
+    } //🔓
     let application = gtk::Application::new(Some(APP_ID), Default::default());
     let config_clone = Arc::clone(&config);
     application.connect_activate(move |app| {

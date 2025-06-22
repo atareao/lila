@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+applications = "0.3.1"
 directories = "6.0.0"
 fuzzy-matcher = "0.3.7"
 gdk = { version = "0.9.6", package = "gdk4", features = ["v4_18"] }
@@ -16,3 +17,4 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["tracing", "env-filter", "local-time", "fmt"] }
+uuid = { version = "1.17.0", features = ["v4"] }
