@@ -6,22 +6,20 @@
 // and is licensed under the MIT License. See the LICENSE file for details.
 //
 
-mod config;
-mod constants;
-mod css;
+mod models;
+mod utils;
 
-use config::Config;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use gdk::Display;
 use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use models::{Config, Css};
 use std::sync::Arc;
 use tracing::debug;
 use tracing_subscriber;
-
-use constants::*;
+use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
 fn activate(application: &gtk::Application, config: &Arc<Config>) {
@@ -209,14 +207,14 @@ fn main() {
         Ok(result) => debug!("GTK initialized successfully: {:?}", result),
         Err(err) => debug!("Failed to initialize GTK: {}", err),
     }
-    let config = Arc::new(config::Config::load().expect("Can not load config file"));
+    let config = Arc::new(Config::load().expect("Can not load config file"));
     let application = gtk::Application::new(Some(APP_ID), Default::default());
     let config_clone = Arc::clone(&config);
     application.connect_activate(move |app| {
         activate(app, &config_clone);
     });
     application.connect_startup(|_| {
-        let provider = css::Css::load().expect("Can not load CSS file");
+        let provider = Css::load().expect("Can not load CSS file");
         gtk::style_context_add_provider_for_display(
             &Display::default().expect("Could not connect to a display."),
             &provider,
