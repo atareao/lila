@@ -1,3 +1,4 @@
+use super::super::utils::*;
 use directories::ProjectDirs;
 use gtk::CssProvider;
 use std::fs;
@@ -8,7 +9,8 @@ pub struct Css {}
 impl Css {
     pub fn load() -> Result<CssProvider, Box<dyn std::error::Error>> {
         let provider = CssProvider::new();
-        if let Some(proj_dirs) = ProjectDirs::from("es", "atareao", "lila") {
+        if let Some(proj_dirs) = ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_APPLICATION)
+        {
             let mut config_dir = proj_dirs.config_dir().to_path_buf();
             debug!("config dir: {:?}", config_dir);
             if !config_dir.exists() {

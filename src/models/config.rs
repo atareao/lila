@@ -1,6 +1,7 @@
+use super::super::utils::*;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::fs;
 use tracing::{debug, error};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -37,7 +38,8 @@ pub struct Config {
 
 impl Config {
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        if let Some(proj_dirs) = ProjectDirs::from("es", "atareao", "lila") {
+        if let Some(proj_dirs) = ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_APPLICATION)
+        {
             let mut config_dir = proj_dirs.config_dir().to_path_buf();
             debug!("config dir: {:?}", config_dir);
             if !config_dir.exists() {
