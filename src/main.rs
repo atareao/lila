@@ -18,6 +18,7 @@ use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use models::{Config, Css};
+use std::io;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 use tracing_subscriber;
@@ -25,6 +26,11 @@ use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
 fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
+    if let Some(existing_window) = application.windows().into_iter().next() {
+        println!("La aplicación ya está ejecutándose, trayendo la ventana existente al frente.");
+        existing_window.present(); // Muestra y enfoca la ventana existente
+        return; // Salimos, no creamos una nueva ventana
+    }
     let config;
     {
         config = mutex_config.lock().unwrap();
@@ -46,6 +52,12 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
 
     // Push other windows out of the way
     window.auto_exclusive_zone_enable();
+
+    window.connect_close_request(move |win| {
+        println!("Señal 'close-request' de la ventana recibida. Ocultando la ventana en lugar de cerrarla.");
+        win.set_visible(false); // Oculta la ventana
+        true.into()
+    });
 
     // Anchors are if the window is pinned to each edge of the output
     let anchors = [
@@ -112,14 +124,15 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
 
     let key_controller = gtk::EventControllerKey::new();
     key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
-        println!("Tecla pulsada: {:?}", keyval.name());
+        debug!("Tecla pulsada: {:?}", keyval.name());
         // Por ejemplo, detectar Enter
         if keyval == gdk::Key::Escape {
-            println!("Se pulsó Escape");
+            debug!("Se pulsó Escape");
             window_clone.set_visible(false);
+            debug!("Window hidden");
             true.into()
         } else if keyval == gdk::Key::Return {
-            println!("Se pulsó Enter");
+            debug!("Se pulsó Enter");
             true.into()
         } else {
             false.into()
@@ -207,11 +220,17 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     window.present();
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     tracing_subscriber::fmt().with_env_filter("debug").init();
     match gtk::init() {
         Ok(result) => debug!("GTK initialized successfully: {:?}", result),
         Err(err) => debug!("Failed to initialize GTK: {}", err),
+    }
+    let application = gtk::Application::new(Some(APP_ID), Default::default());
+    if let Some(existing_window) = application.windows().into_iter().next() {
+        println!("La aplicación ya está ejecutándose, trayendo la ventana existente al frente.");
+        existing_window.present(); // Muestra y enfoca la ventana existente
+        return Ok(()); // Salimos, no creamos una nueva ventana
     }
     let config = Arc::new(Mutex::new(
         Config::load().expect("Can not load config file"),
@@ -222,12 +241,13 @@ fn main() {
             extension.finder.init();
         }
     } //🔓
-    let application = gtk::Application::new(Some(APP_ID), Default::default());
     let config_clone = Arc::clone(&config);
+    debug!("Config loaded");
     application.connect_activate(move |app| {
+        debug!("Application activated");
         activate(app, &config_clone);
     });
-    application.connect_startup(|_| {
+    application.connect_startup(|app| {
         let provider = Css::load().expect("Can not load CSS file");
         gtk::style_context_add_provider_for_display(
             &Display::default().expect("Could not connect to a display."),
@@ -235,6 +255,16 @@ fn main() {
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     });
-
+    application.connect_window_removed(|app, _window| {
+            if app.windows().is_empty() {
+                 println!("Todas las ventanas han sido cerradas/ocultadas. La aplicación permanece en segundo plano debido a `app.hold()`.");
+                 // Si quieres que la aplicación se cierre al cerrar la última ventana visible,
+                 // y has usado `app.hold()`, aquí necesitarías llamar a `app.release()` para contrarrestar el `hold`.
+                 // Si NO usas `app.hold()`, el comportamiento por defecto de GTK es que la aplicación termine cuando no haya más ventanas.
+            }
+        });
+    debug!("Startup completed");
     application.run();
+    debug!("Application exited");
+    Ok(())
 }
