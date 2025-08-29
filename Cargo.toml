@@ -16,5 +16,5 @@ gtk4-layer-shell = "0.5.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["tracing", "env-filter", "local-time", "fmt"] }
+tracing-subscriber = { version = "0.3.20", features = ["tracing", "env-filter", "local-time", "fmt"] }
 uuid = { version = "1.17.0", features = ["v4"] }
