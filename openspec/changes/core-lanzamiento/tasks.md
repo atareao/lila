@@ -2,8 +2,8 @@
 
 ## 1. Modelo y ejecución
 
-- [ ] 1.1 Añadir accesores a `Item`: `id()`, `icon_path()`, `subtitle()`, `exec()`, `keywords()`/`categories()`.
-- [ ] 1.2 Implementar `id()` como ruta canónica del fichero `.desktop`.
+- [x] 1.1 Añadir accesores a `Item`: `id()`, `icon_path()`, `subtitle()`, `exec()`, `keywords()`/`categories()`.
+- [x] 1.2 Implementar `id()` como ruta canónica del fichero `.desktop`.
 - [ ] 1.3 Robustecer `actions::launch`: field codes, `Terminal=true`, `Path`, `TryExec` y activación DBus.
 - [ ] 1.4 Hacer visible el error de lanzamiento al usuario y mantener el dashboard abierto si falla.
 - [ ] 1.5 Registrar el lanzamiento en el historial tras un éxito.
@@ -11,12 +11,12 @@
 
 ## 2. Historial (SQLite)
 
-- [ ] 2.1 Añadir la crate `rusqlite` con feature `bundled`.
-- [ ] 2.2 Crear el módulo `src/history/` con apertura de BD, modo WAL y `schema_version`.
-- [ ] 2.3 Definir la tabla `launcher_history` y el índice por `last_used`.
-- [ ] 2.4 Implementar migraciones idempotentes.
-- [ ] 2.5 Implementar el trait de repositorio (`record`, `score`, `load_all`).
-- [ ] 2.6 Tests: agregación de frecuencia, decaimiento por recencia y aplicación nunca usada.
+- [x] 2.1 Añadir la crate `rusqlite` con feature `bundled`.
+- [x] 2.2 Crear el módulo `src/history/` con apertura de BD, modo WAL y `schema_version`.
+- [x] 2.3 Definir la tabla `launcher_history` y el índice por `last_used`.
+- [x] 2.4 Implementar migraciones idempotentes.
+- [x] 2.5 Implementar el trait de repositorio (`record`, `score`, `load_all`).
+- [x] 2.6 Tests: agregación de frecuencia, decaimiento por recencia y aplicación nunca usada.
 
 ## 3. Ranking
 

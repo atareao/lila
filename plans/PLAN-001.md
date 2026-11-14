@@ -55,11 +55,11 @@ Convertir LiLa de prototipo a un lanzador de aplicaciones sólido, rápido y agr
 ## 6. Tareas atómicas
 
 ### Fase A — Modelo y ejecución
-- [ ] **A1 — Enriquecer `Item`.** Añadir accesores: `id() -> String` (ruta canónica del `.desktop`), `icon_path() -> Option<&Path>`, `subtitle() -> Option<&str>`, `exec() -> Option<&str>`, `keywords()`/`categories()`. No romper la serialización en disco (`Item` deriva serde).
+- [x] **A1 — Enriquecer `Item`.** (hecho: accesores `id`/`icon_path`/`exec`/`subtitle`/`keywords`/`categories` + 7 tests) Añadir accesores: `id() -> String` (ruta canónica del `.desktop`), `icon_path() -> Option<&Path>`, `subtitle() -> Option<&str>`, `exec() -> Option<&str>`, `keywords()`/`categories()`. No romper la serialización en disco (`Item` deriva serde).
 - [ ] **A2 — Motor de lanzamiento robusto.** Auditar `actions::launch`: cubrir field codes (`%f %F %u %U %i %c %k`), `Terminal=true`, `Path` (working dir), `TryExec` y activación DBus. Lanzamiento desacoplado del bucle GTK y **errores visibles** al usuario. Tests de parsing/validación de `Exec` y caso `.desktop` inexistente (mantener el existente).
 
 ### Fase B — Historial y ranking
-- [ ] **B1 — Módulo `history` con SQLite.** Añadir dependencia `rusqlite` (feature `bundled`). Implementar apertura de BD, creación de esquema + `schema_version`, y el trait de repositorio (`record`/`score`/`load_all`). Registrar cada lanzamiento desde `actions`/UI. Tests de agregación de frecuencia y decaimiento por recencia.
+- [x] **B1 — Módulo `history` con SQLite.** (hecho: `rusqlite` bundled, WAL, esquema versionado, trait `HistoryRepository`, 8 tests) Añadir dependencia `rusqlite` (feature `bundled`). Implementar apertura de BD, creación de esquema + `schema_version`, y el trait de repositorio (`record`/`score`/`load_all`). Registrar cada lanzamiento desde `actions`/UI. Tests de agregación de frecuencia y decaimiento por recencia.
 - [ ] **B2 — Ranking combinado.** `final_score = w_fuzzy*fuzzy + w_freq*ln(1+lanzamientos) + w_recency*decay(último_uso)`, con pesos en `Config`. Nuevo `rank_items` (o `filter_items` extendido) ordena por score final, consultando el historial. Tests: query vacía → dominan frecuencia/recencia; el fuzzy puede adelantar a un ítem no usado.
 
 ### Fase C — UI

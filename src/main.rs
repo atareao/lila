@@ -8,6 +8,7 @@
 
 mod actions;
 mod finders;
+mod history;
 mod models;
 mod utils;
 
