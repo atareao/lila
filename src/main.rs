@@ -26,9 +26,57 @@ use std::io;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
+use ui::navigation::{Move, target_index};
 use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
+/// Traduce una tecla de navegación de GTK a un movimiento de la selección.
+///
+/// Devuelve `None` para cualquier otra tecla, de modo que el manejador de
+/// teclado pueda dejarla pasar sin consumirla. El controlador de teclado actúa
+/// en fase *capture*, por lo que también devuelve `None` cuando hay
+/// modificadores presentes: así `Ctrl+A`, `Ctrl+Z`, `Shift+End` y compañía
+/// siguen llegando al editor de texto del `Entry`.
+fn movement_of(keyval: gdk::Key, state: gdk::ModifierType) -> Option<Move> {
+    let editing_modifiers = gdk::ModifierType::CONTROL_MASK
+        | gdk::ModifierType::ALT_MASK
+        | gdk::ModifierType::SHIFT_MASK;
+    if state.intersects(editing_modifiers) {
+        return None;
+    }
+    if keyval == gdk::Key::Down {
+        Some(Move::Down)
+    } else if keyval == gdk::Key::Up {
+        Some(Move::Up)
+    } else if keyval == gdk::Key::Page_Down {
+        Some(Move::PageDown)
+    } else if keyval == gdk::Key::Page_Up {
+        Some(Move::PageUp)
+    } else if keyval == gdk::Key::Home {
+        Some(Move::Home)
+    } else if keyval == gdk::Key::End {
+        Some(Move::End)
+    } else {
+        None
+    }
+}
+
+/// Cuenta las filas de `listbox` recorriendo sus hijos directos.
+///
+/// La `ListBox` no expone el número de filas en gtk4-rs 0.9, así que se
+/// recorren los hijos y solo se cuentan los que son `ListBoxRow`.
+fn row_count(listbox: &ListBox) -> usize {
+    let mut count = 0;
+    let mut child = listbox.first_child();
+    while let Some(widget) = child {
+        if widget.is::<gtk::ListBoxRow>() {
+            count += 1;
+        }
+        child = widget.next_sibling();
+    }
+    count
+}
+
 /// Registra en el historial el lanzamiento de `item` si está disponible y activo.
 ///
 /// Un fallo al registrar no interrumpe el lanzamiento: solo se avisa por log.
@@ -178,7 +226,7 @@ fn activate(
 
     let listbox_sel = listbox.clone();
     let key_controller = gtk::EventControllerKey::new();
-    key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
+    key_controller.connect_key_pressed(move |_, keyval, _keycode, state| {
         debug!("Tecla pulsada: {:?}", keyval.name());
         // Por ejemplo, detectar Enter
         if keyval == gdk::Key::Escape {
@@ -186,29 +234,31 @@ fn activate(
             window_clone.set_visible(false);
             debug!("Window hidden");
             true.into()
-        } else if keyval == gdk::Key::Down {
-            let next = listbox_sel
+        } else if let Some(mv) = movement_of(keyval, state) {
+            // Los índices negativos no son posibles en una `ListBox`, pero se
+            // acotan por si el widget los devolviera en algún estado transitorio.
+            let current = listbox_sel
                 .selected_row()
-                .map(|r| r.index() + 1)
-                .unwrap_or(0);
-            if let Some(row) = listbox_sel.row_at_index(next) {
-                listbox_sel.select_row(Some(&row));
+                .map(|r| r.index().max(0) as usize);
+            let len = row_count(&listbox_sel);
+            match target_index(current, len, mv) {
+                Some(index) => {
+                    if let Some(row) = listbox_sel.row_at_index(index as i32) {
+                        listbox_sel.select_row(Some(&row));
+                    }
+                    true.into()
+                }
+                // Sin resultados la tecla sigue su curso normal (edición de texto).
+                None => false.into(),
             }
-            true.into()
-        } else if keyval == gdk::Key::Up {
-            let prev = listbox_sel
-                .selected_row()
-                .map(|r| r.index() - 1)
-                .unwrap_or(0)
-                .max(0);
-            if let Some(row) = listbox_sel.row_at_index(prev) {
-                listbox_sel.select_row(Some(&row));
-            }
-            true.into()
         } else {
             false.into()
         }
     });
+    // El `GtkText` interno del `Entry` registra Home/End como shortcuts de
+    // clase en fase *bubble* y los consume antes de que este controlador los
+    // vea; en fase *capture* los interceptamos primero.
+    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
     entry.add_controller(key_controller);
     let current_launch = Rc::clone(&current);
     let listbox_launch = listbox.clone();

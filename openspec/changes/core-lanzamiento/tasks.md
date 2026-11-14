@@ -30,7 +30,7 @@
 - [x] 4.1 Filas con `ListBoxRow` (icono + nombre + subtítulo).
 - [x] 4.2 Estilos por defecto para filas y selección.
 - [x] 4.3 Visibilidad de la lista con consulta vacía y sin resultados.
-- [ ] 4.4 Navegación con PageUp/PageDown/Home/End y wrap-around en las flechas.
+- [x] 4.4 Navegación con PageUp/PageDown/Home/End y wrap-around en las flechas.
 - [ ] 4.5 Desplazar la lista para mantener visible la fila seleccionada.
 
 ## 5. Invocación

@@ -6,6 +6,7 @@
 // and is licensed under the MIT License. See the LICENSE file for details.
 //
 
+pub mod navigation;
 pub mod row;
 
 /// Devuelve `true` si la lista de resultados debe mostrarse.
