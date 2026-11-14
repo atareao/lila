@@ -4,7 +4,7 @@
 LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lanzamiento`: core de lanzamiento sólido antes de añadir extensiones. Issue #5 · Spec `openspec/changes/core-lanzamiento/` · Plan `plans/PLAN-001.md`.
 
 ## Estado
-- **Hecho (67 tests verde, clippy `-D warnings` y fmt limpios; Fase C/UI completa + 1.3):**
+- **Hecho (70 tests verde, clippy `-D warnings` y fmt limpios; Fase C/UI completa + 1.3/1.4):**
   - `d02958f` accesores de `Item`; `1c2f893` historial SQLite; `aac89b0` ranking; `7790206` correcciones de auditoría; `cbcb151` andamiaje SDD.
   - `e3fe01f` **4.1** filas `ListBoxRow` (icono + nombre + subtítulo) + view-model puro `ResultRow` (`src/ui/row.rs`). Retirado `allow(dead_code)` de `icon_path`/`subtitle`.
   - `aa75b92` **4.2** estilos por defecto de filas/selección en `Css::default()` (`result-name`, `result-subtitle`, `row:selected` + `background-image: none`).
@@ -12,20 +12,20 @@ LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lan
   - `bd8e704` **4.4** módulo puro `ui::navigation` (`Move`/`target_index`/`PAGE_STEP`); wrap-around en Down/Up, PageUp/PageDown (±10) y Home/End. `EventControllerKey` en `PropagationPhase::Capture` (intercepta Home/End antes del `GtkText` interno del `Entry`); con modificadores se deja pasar la edición de texto.
   - `0605f19` **4.5** `ui::navigation::scroll_value` puro + handler `row-selected` que ajusta la `vadjustment` para mantener visible la fila seleccionada. **Cierra la Fase C (UI)** → `C2` del plan marcada.
   - `cf31b35` **1.3** (issue #6, cerrado) `actions::launch` devuelve `LaunchError` tipado (`MissingDesktopFile`/`NotLaunchable`/`Spawn`); field codes, `Terminal`, `Path`, `TryExec` y DBus delegados en `GDesktopAppInfo::launch_uris` (verificado en fuente GLib). Tests con fixtures en `TempDir`.
-- **En curso:** nada a medias; working tree limpio tras el commit de 1.3.
+  - `b3c03ea` **1.4** (issue #7, cerrado) label `launch-error` bajo el `Entry`: muestra el `LaunchError` al fallar y el dashboard permanece abierto; se limpia al reintentar/filtrar y en éxito. `Display` de `NotLaunchable` sin jerga `.desktop`; estilo `.launch-error` en `Css::default()`.
+- **En curso:** nada a medias; working tree limpio tras el commit de 1.4.
 - **Rama actual:** `feature/core-lanzamiento` (base `development`). **Sin push al remoto.**
 
 ## Pendiente (misma rama)
-Fase C (UI) completa y 1.3 hecha. Pendiente en orden:
-- **1.4** (issue nuevo al iniciar) mostrar el error de lanzamiento en la UI y mantener el dashboard abierto.
-- **1.6** (issue nuevo al iniciar) tests puros de parsing de `Exec`; `Terminal=true` queda delegado a GLib (no testable hermético).
-- **D** instancia única / re-present (5.1–5.3).
+Fase C (UI) completa y 1.3/1.4 hechas. Pendiente en orden:
+- **1.6** (issue nuevo al iniciar) tests puros de parsing de `Exec`; `Terminal=true` delegado a GLib (no testable hermético).
+- **D** instancia única / re-present (5.1–5.3): al re-presentar la ventana existente, **limpiar el label de error** (hoy queda el mensaje obsoleto tras Escape + re-invocación).
 - **E** docs/README/verificación final (6.2–6.4).
 
 ## Punto de partida
 ```bash
 cd /data/rust/lila && git checkout feature/core-lanzamiento
-cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check   # verde (67 tests)
+cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check   # verde (70 tests)
 ```
 
 ## Metodología / reglas
