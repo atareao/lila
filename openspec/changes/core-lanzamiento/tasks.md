@@ -6,7 +6,7 @@
 - [x] 1.2 Implementar `id()` como ruta canónica del fichero `.desktop`.
 - [ ] 1.3 Robustecer `actions::launch`: field codes, `Terminal=true`, `Path`, `TryExec` y activación DBus.
 - [ ] 1.4 Hacer visible el error de lanzamiento al usuario y mantener el dashboard abierto si falla.
-- [ ] 1.5 Registrar el lanzamiento en el historial tras un éxito.
+- [x] 1.5 Registrar el lanzamiento en el historial tras un éxito.
 - [ ] 1.6 Tests: parsing de `Exec`, caso `Terminal`, `.desktop` inexistente.
 
 ## 2. Historial (SQLite)
@@ -20,10 +20,10 @@
 
 ## 3. Ranking
 
-- [ ] 3.1 Implementar la puntuación combinada fuzzy + frecuencia + recencia.
-- [ ] 3.2 Leer los pesos desde `Config`.
-- [ ] 3.3 Aplicar el límite de resultados configurable.
-- [ ] 3.4 Tests: la frecuencia desempata, recencia con consulta vacía y fuzzy que adelanta.
+- [x] 3.1 Implementar la puntuación combinada fuzzy + frecuencia + recencia.
+- [x] 3.2 Leer los pesos desde `Config`.
+- [x] 3.3 Aplicar el límite de resultados configurable.
+- [x] 3.4 Tests: la frecuencia desempata, recencia con consulta vacía y fuzzy que adelanta.
 
 ## 4. Presentación y teclado
 
@@ -41,7 +41,7 @@
 
 ## 6. Configuración, documentación y verificación
 
-- [ ] 6.1 Ampliar `Config` con los campos nuevos (`#[serde(default)]`).
+- [x] 6.1 Ampliar `Config` con los campos nuevos (`#[serde(default)]`).
 - [ ] 6.2 Escribir `docs/core-lanzamiento.md`.
 - [ ] 6.3 Actualizar `README.md`.
 - [ ] 6.4 `cargo fmt --check`, `cargo clippy -- -D warnings` y `cargo test` en verde.

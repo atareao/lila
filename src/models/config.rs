@@ -38,6 +38,46 @@ pub struct Config {
     pub bottom: Edge,
     #[serde(default)]
     pub extensions: Vec<Extension>,
+    /// Peso de la coincidencia difusa en el ranking.
+    #[serde(default = "default_fuzzy_weight")]
+    pub fuzzy_weight: f64,
+    /// Peso de la frecuencia de lanzamientos en el ranking.
+    #[serde(default = "default_frequency_weight")]
+    pub frequency_weight: f64,
+    /// Peso de la recencia del último uso en el ranking.
+    #[serde(default = "default_recency_weight")]
+    pub recency_weight: f64,
+    /// Número máximo de resultados mostrados.
+    #[serde(default = "default_max_results")]
+    pub max_results: usize,
+    /// Si es `false` no se registran lanzamientos y el ranking usa solo el difuso.
+    #[serde(default = "default_history_enabled")]
+    pub history_enabled: bool,
+}
+
+/// Peso por defecto de la coincidencia difusa.
+fn default_fuzzy_weight() -> f64 {
+    1.0
+}
+
+/// Peso por defecto de la frecuencia de lanzamientos.
+fn default_frequency_weight() -> f64 {
+    0.5
+}
+
+/// Peso por defecto de la recencia del último uso.
+fn default_recency_weight() -> f64 {
+    0.5
+}
+
+/// Límite por defecto de resultados mostrados.
+fn default_max_results() -> usize {
+    50
+}
+
+/// El historial está activado por defecto.
+fn default_history_enabled() -> bool {
+    true
 }
 
 impl Config {
@@ -87,6 +127,49 @@ impl Default for Config {
             top: Edge::default(),
             bottom: Edge::default(),
             extensions,
+            fuzzy_weight: default_fuzzy_weight(),
+            frequency_weight: default_frequency_weight(),
+            recency_weight: default_recency_weight(),
+            max_results: default_max_results(),
+            history_enabled: default_history_enabled(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// [TDD-RED-B2-01] Un `config.yml` antiguo, sin los campos nuevos, aplica
+    /// los valores por defecto sin fallar.
+    #[test]
+    fn legacy_config_without_new_fields_uses_defaults() {
+        let yaml = "width: 640\nheight: 480\n";
+        let config: Config = serde_yaml::from_str(yaml).expect("debería deserializar");
+
+        assert_eq!(config.fuzzy_weight, 1.0);
+        assert_eq!(config.frequency_weight, 0.5);
+        assert_eq!(config.recency_weight, 0.5);
+        assert_eq!(config.max_results, 50);
+        assert!(config.history_enabled);
+    }
+
+    /// [TDD-RED-B2-02] Los valores explícitos del YAML se respetan.
+    #[test]
+    fn config_with_new_fields_respects_explicit_values() {
+        let yaml = "\
+fuzzy_weight: 2.5
+frequency_weight: 0.1
+recency_weight: 0.9
+max_results: 7
+history_enabled: false
+";
+        let config: Config = serde_yaml::from_str(yaml).expect("debería deserializar");
+
+        assert_eq!(config.fuzzy_weight, 2.5);
+        assert_eq!(config.frequency_weight, 0.1);
+        assert_eq!(config.recency_weight, 0.9);
+        assert_eq!(config.max_results, 7);
+        assert!(!config.history_enabled);
     }
 }

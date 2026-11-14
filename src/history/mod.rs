@@ -26,28 +26,18 @@ use crate::utils::{APP_APPLICATION, APP_ORGANIZATION, APP_QUALIFIER};
 /// Cada `HALF_LIFE_DAYS` días sin usar un ítem, su puntuación se reduce a la
 /// mitad respecto a la que tendría con el mismo número de lanzamientos recién
 /// usados.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 pub const HALF_LIFE_DAYS: f64 = 14.0;
 
 /// Milisegundos que tiene un día, usados para convertir edades a días.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 const MILLIS_PER_DAY: f64 = 86_400_000.0;
 
 /// Nombre del fichero de base de datos dentro del directorio de configuración.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 const DB_FILE_NAME: &str = "history.db";
 
 /// Versión de esquema que aplican las migraciones al abrir la base de datos.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 const SCHEMA_VERSION: i64 = 1;
 
 /// Datos de uso acumulados de un ítem.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Usage {
     /// Número de lanzamientos registrados.
@@ -59,8 +49,6 @@ pub struct Usage {
 }
 
 /// Errores del módulo de historial.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum HistoryError {
     /// No se pudo resolver el directorio de configuración XDG.
@@ -109,21 +97,20 @@ impl From<rusqlite::Error> for HistoryError {
 }
 
 /// Resultado de las operaciones del historial.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 pub type Result<T> = std::result::Result<T, HistoryError>;
 
 /// Repositorio de historial de uso.
 ///
 /// Desacopla el ranking de la persistencia: cualquier implementación sirve para
 /// registrar lanzamientos y consultar puntuaciones.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 pub trait HistoryRepository {
     /// Registra un lanzamiento del ítem `item_id` en el instante `now_millis`.
     fn record(&self, item_id: &str, now_millis: i64) -> Result<()>;
 
     /// Devuelve el uso acumulado de `item_id`, o `None` si nunca se lanzó.
+    // Usado por `score` y por los tests; la ruta de ranking lee el historial de
+    // una vez con `load_all`, así que no lo invoca.
+    #[allow(dead_code)]
     fn usage(&self, item_id: &str) -> Result<Option<Usage>>;
 
     /// Devuelve la puntuación de `item_id` en el instante `now_millis`.
@@ -131,6 +118,8 @@ pub trait HistoryRepository {
     /// La puntuación es `ln(1 + launches) * decay`, con
     /// `decay = 0.5^(edad_dias / HALF_LIFE_DAYS)`. Un ítem desconocido puntúa
     /// `0.0`.
+    // Puntuación de un ítem suelto; el ranking combina los factores por separado.
+    #[allow(dead_code)]
     fn score(&self, item_id: &str, now_millis: i64) -> Result<f64> {
         match self.usage(item_id)? {
             Some(usage) => Ok(usage_score(&usage, now_millis)),
@@ -142,24 +131,36 @@ pub trait HistoryRepository {
     fn load_all(&self) -> Result<Vec<(String, Usage)>>;
 }
 
-/// Calcula la puntuación de uso de `usage` en el instante `now_millis`.
+/// Puntuación de frecuencia de `usage`: `ln(1 + launches)`.
 ///
-/// Combina frecuencia (`ln(1 + launches)`) y recencia
-/// (`0.5^(edad_dias / HALF_LIFE_DAYS)`). Si `now_millis` es anterior al último
+/// Crece de forma logarítmica con el número de lanzamientos, de modo que pasar
+/// de 1 a 2 usos pesa mucho más que pasar de 100 a 101.
+pub fn frequency_score(usage: &Usage) -> f64 {
+    (1.0 + usage.launches as f64).ln()
+}
+
+/// Puntuación de recencia de `usage` en el instante `now_millis`.
+///
+/// Vale `1.0` para un uso reciente y se reduce a la mitad por cada
+/// `HALF_LIFE_DAYS` días transcurridos. Si `now_millis` es anterior al último
 /// uso la edad se trata como cero, de modo que la puntuación nunca crece por
 /// usar un reloj adelantado.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
+pub fn recency_score(usage: &Usage, now_millis: i64) -> f64 {
+    let age_days = (now_millis - usage.last_used).max(0) as f64 / MILLIS_PER_DAY;
+    0.5_f64.powf(age_days / HALF_LIFE_DAYS)
+}
+
+/// Calcula la puntuación de uso de `usage` en el instante `now_millis`.
+///
+/// Combina frecuencia y recencia como `frequency_score * recency_score`.
+// Solo lo usa el método `score` del repositorio, no la ruta de ranking.
 #[allow(dead_code)]
 fn usage_score(usage: &Usage, now_millis: i64) -> f64 {
-    let age_days = (now_millis - usage.last_used).max(0) as f64 / MILLIS_PER_DAY;
-    let decay = 0.5_f64.powf(age_days / HALF_LIFE_DAYS);
-    (1.0 + usage.launches as f64).ln() * decay
+    frequency_score(usage) * recency_score(usage, now_millis)
 }
 
 /// Construye un `Usage` a partir de una fila cuyas columnas `launches`,
 /// `first_used` y `last_used` empiezan en `offset`.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 fn usage_from_row(row: &rusqlite::Row<'_>, offset: usize) -> rusqlite::Result<Usage> {
     let launches: i64 = row.get(offset)?;
     Ok(Usage {
@@ -170,15 +171,11 @@ fn usage_from_row(row: &rusqlite::Row<'_>, offset: usize) -> rusqlite::Result<Us
 }
 
 /// Historial de uso persistido en una base de datos SQLite.
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 pub struct SqliteHistory {
     /// Conexión protegida por mutex: rusqlite no es sincronizado.
     conn: Mutex<Connection>,
 }
 
-// TODO(core-lanzamiento): se consumirá en la Fase B2; retirar el allow entonces.
-#[allow(dead_code)]
 impl SqliteHistory {
     /// Abre el historial en el directorio de configuración de la aplicación.
     ///
@@ -428,6 +425,48 @@ mod tests {
             .expect("No se pudo leer journal_mode");
 
         assert_eq!(mode.to_lowercase(), "wal");
+    }
+
+    /// [TDD-RED-B2-03] `frequency_score` crece de forma logarítmica con el uso.
+    #[test]
+    fn frequency_score_grows_with_launches() {
+        let zero = Usage {
+            launches: 0,
+            first_used: T0,
+            last_used: T0,
+        };
+        let one = Usage {
+            launches: 1,
+            first_used: T0,
+            last_used: T0,
+        };
+        let nine = Usage {
+            launches: 9,
+            first_used: T0,
+            last_used: T0,
+        };
+
+        assert_eq!(frequency_score(&zero), 0.0);
+        assert!((frequency_score(&one) - 2.0_f64.ln()).abs() < 1e-12);
+        assert!((frequency_score(&nine) - 10.0_f64.ln()).abs() < 1e-12);
+        assert!(frequency_score(&nine) > frequency_score(&one));
+    }
+
+    /// [TDD-RED-B2-04] `recency_score` se reduce a la mitad cada vida media.
+    #[test]
+    fn recency_score_halves_every_half_life() {
+        let usage = Usage {
+            launches: 3,
+            first_used: T0,
+            last_used: T0,
+        };
+        let half_life = (HALF_LIFE_DAYS as i64) * DAY_MILLIS;
+
+        assert!((recency_score(&usage, T0) - 1.0).abs() < 1e-12);
+        assert!((recency_score(&usage, T0 + half_life) - 0.5).abs() < 1e-9);
+        assert!((recency_score(&usage, T0 + 2 * half_life) - 0.25).abs() < 1e-9);
+        // Un reloj anterior al último uso no aumenta la puntuación.
+        assert!((recency_score(&usage, T0 - DAY_MILLIS) - 1.0).abs() < 1e-12);
     }
 
     /// [TDD-RED-07] `load_all` devuelve todo lo registrado.

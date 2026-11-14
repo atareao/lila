@@ -60,7 +60,7 @@ Convertir LiLa de prototipo a un lanzador de aplicaciones sólido, rápido y agr
 
 ### Fase B — Historial y ranking
 - [x] **B1 — Módulo `history` con SQLite.** (hecho: `rusqlite` bundled, WAL, esquema versionado, trait `HistoryRepository`, 8 tests) Añadir dependencia `rusqlite` (feature `bundled`). Implementar apertura de BD, creación de esquema + `schema_version`, y el trait de repositorio (`record`/`score`/`load_all`). Registrar cada lanzamiento desde `actions`/UI. Tests de agregación de frecuencia y decaimiento por recencia.
-- [ ] **B2 — Ranking combinado.** `final_score = w_fuzzy*fuzzy + w_freq*ln(1+lanzamientos) + w_recency*decay(último_uso)`, con pesos en `Config`. Nuevo `rank_items` (o `filter_items` extendido) ordena por score final, consultando el historial. Tests: query vacía → dominan frecuencia/recencia; el fuzzy puede adelantar a un ítem no usado.
+- [x] **B2 — Ranking combinado.** (hecho: `rank_items`, pesos y `max_results` en `Config`, cableado en `main.rs`, 11 tests) `final_score = w_fuzzy*fuzzy + w_freq*ln(1+lanzamientos) + w_recency*decay(último_uso)`, con pesos en `Config`. Nuevo `rank_items` (o `filter_items` extendido) ordena por score final, consultando el historial. Tests: query vacía → dominan frecuencia/recencia; el fuzzy puede adelantar a un ítem no usado.
 
 ### Fase C — UI
 - [ ] **C1 — Filas con icono y subtítulo.** Sustituir `Label` por `ListBoxRow` con `Box` horizontal: `Image` (icono de la app) + `Box` vertical (nombre + subtítulo atenuado). Estilos en `Css::default()`, respetando `#lila-listbox`.

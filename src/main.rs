@@ -13,11 +13,12 @@ mod models;
 mod utils;
 
 use actions::launch;
-use finders::filter_items;
+use finders::rank_items;
 use gdk::Display;
 use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use history::{HistoryRepository, SqliteHistory};
 use models::{Config, Css, Item};
 use std::cell::RefCell;
 use std::io;
@@ -27,7 +28,26 @@ use tracing::debug;
 use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
-fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
+/// Registra en el historial el lanzamiento de `item` si está disponible y activo.
+///
+/// Un fallo al registrar no interrumpe el lanzamiento: solo se avisa por log.
+fn record_launch(history: Option<&SqliteHistory>, enabled: bool, item: &Item) {
+    if !enabled {
+        return;
+    }
+    let Some(store) = history else {
+        return;
+    };
+    if let Err(err) = store.record(&item.id(), now() as i64) {
+        tracing::warn!("No se pudo registrar el lanzamiento: {err}");
+    }
+}
+
+fn activate(
+    application: &gtk::Application,
+    mutex_config: &Arc<Mutex<Config>>,
+    history: Option<Rc<SqliteHistory>>,
+) {
     if let Some(existing_window) = application.windows().into_iter().next() {
         existing_window.present(); // Muestra y enfoca la ventana existente
         return; // Salimos, no creamos una nueva ventana
@@ -45,6 +65,10 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
         .unwrap_or_default();
     let apps = Rc::new(apps);
     let current: Rc<RefCell<Vec<Item>>> = Rc::new(RefCell::new(Vec::new()));
+    // Las señales de GTK exigen closures `'static`: se clona la config y el
+    // historial una sola vez y se reparten entre las señales.
+    let ranking_config = Rc::new(config.clone());
+    let history_enabled = config.history_enabled;
     // Create a normal GTK window however you like
     let window = gtk::ApplicationWindow::new(application);
     window.set_size_request(config.width, config.height);
@@ -155,6 +179,7 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     let current_launch = Rc::clone(&current);
     let listbox_launch = listbox.clone();
     let window_launch = window.clone();
+    let history_launch = history.clone();
     entry.connect_activate(move |_| {
         let idx = listbox_launch
             .selected_row()
@@ -165,7 +190,10 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
         }
         if let Some(item) = current_launch.borrow().get(idx as usize).cloned() {
             match launch(&item) {
-                Ok(()) => window_launch.set_visible(false),
+                Ok(()) => {
+                    window_launch.set_visible(false);
+                    record_launch(history_launch.as_deref(), history_enabled, &item);
+                }
                 Err(err) => tracing::error!("No se pudo lanzar la aplicación: {err}"),
             }
         }
@@ -177,7 +205,11 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     let listbox_changed = listbox.clone();
     entry.connect_changed(move |e| {
         let text = e.text().to_string();
-        let results = filter_items(&apps_changed, &text);
+        let history: Option<&dyn HistoryRepository> = history
+            .as_ref()
+            .map(|store| store.as_ref() as &dyn HistoryRepository);
+        let now_millis = now() as i64;
+        let results = rank_items(&apps_changed, &text, history, &ranking_config, now_millis);
         listbox_changed.remove_all();
         for item in &results {
             listbox_changed.append(&Label::new(Some(item.name())));
@@ -224,9 +256,17 @@ fn main() -> io::Result<()> {
     } //🔓
     let config_clone = Arc::clone(&config);
     debug!("Config loaded");
+    let history = match SqliteHistory::open() {
+        Ok(store) => Some(Rc::new(store)),
+        Err(err) => {
+            tracing::warn!("No se pudo abrir el historial de uso, se continúa sin él: {err}");
+            None
+        }
+    };
+    let history_activate = history.clone();
     application.connect_activate(move |app| {
         debug!("Application activated");
-        activate(app, &config_clone);
+        activate(app, &config_clone, history_activate.clone());
     });
     application.connect_startup(|_app| {
         let provider = Css::load().expect("Can not load CSS file");

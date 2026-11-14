@@ -19,8 +19,6 @@ impl Item {
 
     /// ID estable de la aplicación: ruta canónica del fichero `.desktop`.
     /// Si la canonicalización falla, cae al path tal cual como String.
-    // TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-    #[allow(dead_code)]
     pub fn id(&self) -> String {
         match self {
             Item::App(app) => app
