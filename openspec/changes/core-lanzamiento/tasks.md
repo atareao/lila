@@ -7,7 +7,7 @@
 - [x] 1.3 Robustecer `actions::launch`: field codes, `Terminal=true`, `Path`, `TryExec` y activación DBus. *(Verificado: GLib ya aplica los cinco en `g_desktop_app_info_load_from_keyfile()` + `launch_uris()`; se añadió `LaunchError` tipado y tests de los escenarios.)*
 - [ ] 1.4 Hacer visible el error de lanzamiento al usuario y mantener el dashboard abierto si falla.
 - [x] 1.5 Registrar el lanzamiento en el historial tras un éxito.
-- [ ] 1.6 Tests: parsing de `Exec`, caso `Terminal`, `.desktop` inexistente.
+- [x] 1.6 Tests: parsing de `Exec`, caso `Terminal`, `.desktop` inexistente. *(Cobertura de tests, sin cambios de producción: capa de datos con `DesktopAppInfo::string()`/`boolean()`/`has_key()`/`filename()` + fixtures en `TempDir`, binario `/usr/bin/env`. `desktop_exec_key_is_exposed_verbatim_with_field_codes` (%U/%f verbatim; la expansión se cubre con el test behavioral que observa los argumentos del proceso), `desktop_terminal_key_is_exposed_and_startup_is_delegated_to_glib`, `desktop_app_info_from_missing_path_is_none` y `launch_missing_desktop_returns_err` consolidado en `TempDir`. **Decisión sobre `Terminal=true`: delegado a GLib** — el arranque dentro del emulador lo hace `g_desktop_app_info_launch_uris_with_spawn()`, que antepone el terminal resuelto vía GSettings/`$TERMINAL`; no es testable de forma hermética (requiere emulador en `PATH` y lanzaría un proceso interactivo), así que se verifica el dato declarado y la delegación queda documentada en `actions::launch`.)*
 
 ## 2. Historial (SQLite)
 

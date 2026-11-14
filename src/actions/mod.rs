@@ -145,14 +145,19 @@ mod tests {
 
     /// [TDD-RED-01] `.desktop` inexistente: error de fichero ausente, con la
     /// ruta en el mensaje (escenario "Fallo de lanzamiento visible").
+    ///
+    /// Consolidado en 1.6: la ruta ausente se construye dentro de un `TempDir`
+    /// (antes un `/tmp/...` fijo) para que el test sea hermético y no dependa de
+    /// que ese directorio no exista en la máquina.
     #[test]
     fn launch_missing_desktop_returns_err() {
-        let missing = Path::new("/tmp/no-existe-jamas/ghost.desktop");
-        let item = item_at(missing);
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let missing = tmp.path().join("ghost.desktop");
+        let item = item_at(&missing);
 
         let err = launch(&item).expect_err("un .desktop inexistente no es lanzable");
 
-        assert!(matches!(&err, LaunchError::MissingDesktopFile(p) if p == missing));
+        assert!(matches!(&err, LaunchError::MissingDesktopFile(p) if p == &missing));
         assert!(err.to_string().contains("ghost.desktop"), "mensaje: {err}");
     }
 
@@ -237,6 +242,108 @@ TryExec=/nonexistent/binary-xyz
                 "sin jerga de claves del .desktop ('{jargon}'): {message}"
             );
         }
+    }
+
+    /// [TDD-RED-06] Capa de datos: las claves de `Exec` se leen **verbatim** del
+    /// `.desktop`, con los *field codes* sin expandir. La expansión (`%U`/`%f` a
+    /// nada cuando no hay URIs) es cosa de `launch_uris`, no del parseo, y se
+    /// verifica en `launch_exec_with_field_codes_passes_no_literal_arguments`.
+    ///
+    /// No spawnea nada: solo carga la entrada con `from_filename` y consulta sus
+    /// claves.
+    #[test]
+    fn desktop_exec_key_is_exposed_verbatim_with_field_codes() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop = write_desktop(
+            tmp.path(),
+            "exec-fieldcodes.desktop",
+            &format!(
+                "\
+[Desktop Entry]
+Type=Application
+Name=ExecFieldCodes
+Exec={EXEC_BINARY} %U %f
+"
+            ),
+        );
+
+        let info = gio::DesktopAppInfo::from_filename(&desktop).expect("la entrada debe cargarse");
+        let expected_exec = format!("{EXEC_BINARY} %U %f");
+
+        assert!(
+            info.has_key("Exec"),
+            "la clave Exec debe estar presente en la entrada cargada"
+        );
+        assert_eq!(
+            info.string("Exec").as_deref(),
+            Some(expected_exec.as_str()),
+            "Exec debe conservar los field codes tal cual (sin expandir)"
+        );
+        assert_eq!(
+            info.filename().as_deref(),
+            Some(desktop.as_path()),
+            "la entrada debe quedar ligada a la fixture, no a un .desktop del sistema"
+        );
+    }
+
+    /// [TDD-RED-07] Capa de datos: `Terminal=true` se declara y se lee del
+    /// `.desktop`.
+    ///
+    /// El **arranque dentro de un emulador** no se comprueba aquí, y no es
+    /// testeable de forma hermética: lo realiza GLib dentro de
+    /// `g_desktop_app_info_launch_uris_with_spawn()`, que antepone el terminal
+    /// resuelto por `GDesktopAppInfo` (GSettings
+    /// `org.gnome.desktop.default-applications.terminal` o `$TERMINAL`). Un test
+    /// real requeriría un emulador instalado en `PATH` y lanzaría un proceso
+    /// interactivo, así que la verificación se queda en el dato declarado y en la
+    /// delegación documentada en `actions::launch`.
+    #[test]
+    fn desktop_terminal_key_is_exposed_and_startup_is_delegated_to_glib() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop = write_desktop(
+            tmp.path(),
+            "terminal.desktop",
+            &format!(
+                "\
+[Desktop Entry]
+Type=Application
+Name=TerminalApp
+Exec={EXEC_BINARY}
+Terminal=true
+"
+            ),
+        );
+
+        let info = gio::DesktopAppInfo::from_filename(&desktop).expect("la entrada debe cargarse");
+
+        assert!(
+            info.has_key("Terminal"),
+            "la clave Terminal debe estar presente"
+        );
+        assert!(
+            info.boolean("Terminal"),
+            "Terminal=true debe leerse como booleano verdadero"
+        );
+        assert_eq!(
+            info.string("Terminal").as_deref(),
+            Some("true"),
+            "Terminal debe exponerse tal cual en la capa de datos"
+        );
+    }
+
+    /// [TDD-RED-08] Capa de datos: un fichero ausente no produce ninguna entrada,
+    /// que es justo por lo que `actions::launch` comprueba `is_file()` antes de
+    /// llamar a `from_filename` (si no, un fichero que falta se reportaría como
+    /// "no lanzable" en lugar de "no se encontró").
+    #[test]
+    fn desktop_app_info_from_missing_path_is_none() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let missing = tmp.path().join("ghost.desktop");
+
+        assert!(
+            gio::DesktopAppInfo::from_filename(&missing).is_none(),
+            "sin fichero no hay DesktopAppInfo"
+        );
     }
 
     /// [TDD-RED-03] `Exec` con *field codes* (`%U`, `%f`) y sin URIs: GLib los
