@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::finders::Finder;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Extension {
     pub id: String,
     pub name: String,
@@ -28,19 +28,6 @@ impl Extension {
             description,
             finder,
             max_time,
-        }
-    }
-}
-
-impl Default for Extension {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            name: String::new(),
-            key: None,
-            description: None,
-            finder: Finder::default(),
-            max_time: None,
         }
     }
 }
