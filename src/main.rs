@@ -26,7 +26,7 @@ use std::io;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
-use ui::navigation::{Move, target_index};
+use ui::navigation::{Move, scroll_value, target_index};
 use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
@@ -223,6 +223,26 @@ fn activate(
     scroll.set_can_focus(false);
     listbox.set_visible(false);
     listbox.set_can_focus(false);
+
+    // `select_row` no desplaza el `ScrolledWindow`: la `GtkListBox` solo cambia
+    // la selección. Mantenemos aquí la fila seleccionada a la vista, tanto al
+    // navegar con el teclado como al filtrar (que reselecciona la primera fila).
+    let scroll_sel = scroll.clone();
+    listbox.connect_row_selected(move |listbox, row| {
+        let Some(row) = row else {
+            return;
+        };
+        let Some(point) = row.compute_point(listbox, &gtk::graphene::Point::new(0.0, 0.0)) else {
+            return;
+        };
+        let top = f64::from(point.y());
+        let bottom = top + f64::from(row.height());
+        let adj = scroll_sel.vadjustment();
+        let new = scroll_value(top, bottom, adj.value(), adj.page_size());
+        if (new - adj.value()).abs() > f64::EPSILON {
+            adj.set_value(new);
+        }
+    });
 
     let listbox_sel = listbox.clone();
     let key_controller = gtk::EventControllerKey::new();

@@ -64,6 +64,28 @@ pub fn target_index(current: Option<usize>, len: usize, mv: Move) -> Option<usiz
     Some(target)
 }
 
+/// Calcula el valor que debe tomar la `vadjustment` para que una fila quede
+/// a la vista.
+///
+/// `row_top` y `row_bottom` son los bordes superior e inferior de la fila en
+/// coordenadas del `listbox`; `current` es el valor actual de la `vadjustment`
+/// y `page_size` su tamaño de página (la altura visible del `ScrolledWindow`).
+/// Devuelve el nuevo valor de la `vadjustment`: `row_top` si la fila empieza
+/// por encima del viewport o si es más alta que la propia página; si termina
+/// por debajo, el valor que la alinea con el borde inferior; y `current` sin
+/// cambios si ya está completamente visible.
+#[must_use]
+pub fn scroll_value(row_top: f64, row_bottom: f64, current: f64, page_size: f64) -> f64 {
+    let row_height = row_bottom - row_top;
+    if row_top < current || row_height > page_size {
+        return row_top;
+    }
+    if row_bottom > current + page_size {
+        return row_bottom - page_size;
+    }
+    current
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +189,25 @@ mod tests {
     #[test]
     fn page_step_should_be_ten() {
         assert_eq!(PAGE_STEP, 10);
+    }
+
+    #[test]
+    fn scroll_should_move_up_when_row_is_above_the_viewport() {
+        assert_eq!(scroll_value(120.0, 150.0, 200.0, 300.0), 120.0);
+    }
+
+    #[test]
+    fn scroll_should_move_down_when_row_is_below_the_viewport() {
+        assert_eq!(scroll_value(400.0, 430.0, 0.0, 300.0), 130.0);
+    }
+
+    #[test]
+    fn scroll_should_keep_current_value_when_row_is_already_visible() {
+        assert_eq!(scroll_value(120.0, 150.0, 0.0, 300.0), 0.0);
+    }
+
+    #[test]
+    fn scroll_should_align_top_when_row_is_taller_than_the_viewport() {
+        assert_eq!(scroll_value(500.0, 900.0, 0.0, 300.0), 500.0);
     }
 }

@@ -64,7 +64,7 @@ Convertir LiLa de prototipo a un lanzador de aplicaciones sólido, rápido y agr
 
 ### Fase C — UI
 - [x] **C1 — Filas con icono y subtítulo.** Sustituir `Label` por `ListBoxRow` con `Box` horizontal: `Image` (icono de la app) + `Box` vertical (nombre + subtítulo atenuado). Estilos en `Css::default()`, respetando `#lila-listbox`.
-- [ ] **C2 — Teclado completo.** PageUp/PageDown, Home/End, wrap-around en Up/Down y `scroll-to-selected`. Mantener Escape (ocultar) y Enter (lanzar). Reservar Ctrl+Enter para acciones secundarias (follow-up).
+- [x] **C2 — Teclado completo.** PageUp/PageDown, Home/End, wrap-around en Up/Down y `scroll-to-selected`. Mantener Escape (ocultar) y Enter (lanzar). Reservar Ctrl+Enter para acciones secundarias (follow-up).
 
 ### Fase D — Invocación
 - [ ] **D1 — Instancia única.** Corregir el arranque: eliminar el early-return defectuoso previo a `application.run()`; garantizar que una segunda invocación del binario re-presenta la ventana existente. Opcional: acción DBus para atajo global del compositor.
