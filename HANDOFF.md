@@ -4,17 +4,17 @@
 LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lanzamiento`: core de lanzamiento sólido antes de añadir extensiones. Issue #5 · Spec `openspec/changes/core-lanzamiento/` · Plan `plans/PLAN-001.md`.
 
 ## Estado
-- **Hecho (44 tests verde, clippy `-D warnings` y fmt limpios):**
+- **Hecho (61 tests verde, clippy `-D warnings` y fmt limpios):**
   - `d02958f` accesores de `Item`; `1c2f893` historial SQLite; `aac89b0` ranking; `7790206` correcciones de auditoría; `cbcb151` andamiaje SDD.
   - `e3fe01f` **4.1** filas `ListBoxRow` (icono + nombre + subtítulo) + view-model puro `ResultRow` (`src/ui/row.rs`). Retirado `allow(dead_code)` de `icon_path`/`subtitle`.
   - `aa75b92` **4.2** estilos por defecto de filas/selección en `Css::default()` (`result-name`, `result-subtitle`, `row:selected` + `background-image: none`).
   - `98f7c0b` **4.3** predicado puro `ui::results_visible(count)` + `refresh()` reutilizable y render inicial en `activate()`, de modo que la lista se rige solo por existencia de resultados y muestra el historial al abrir el dashboard.
-- **En curso:** nada a medias; working tree limpio tras el commit de 4.3.
+  - `bd8e704` **4.4** módulo puro `ui::navigation` (`Move`/`target_index`/`PAGE_STEP`); wrap-around en Down/Up, PageUp/PageDown (±10) y Home/End. `EventControllerKey` en `PropagationPhase::Capture` (intercepta Home/End antes del `GtkText` interno del `Entry`); con modificadores se deja pasar la edición de texto.
+- **En curso:** nada a medias; working tree limpio tras el commit de 4.4.
 - **Rama actual:** `feature/core-lanzamiento` (base `development`). **Sin push al remoto.**
 
 ## Pendiente (misma rama)
 Fase C restante, en orden:
-- **4.4** Navegación PageUp/PageDown/Home/End + wrap-around en flechas (hoy Down/Up no envuelven ni hay Page/Home/End).
 - **4.5** Scroll para mantener visible la fila seleccionada.
 Luego **A2** (1.3/1.4/1.6 robustez de `actions::launch` + error visible), **D** (5.1–5.3 instancia única/re-present), **E** (6.2–6.4 docs/README/verificación final).
 
@@ -35,4 +35,5 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check   #
 - **Estilos y config previa:** `Css::load()` solo escribe el default si `~/.config/lila/style.css` no existe → instalaciones previas no reciben los estilos nuevos sin borrar el fichero (comportamiento preexistente).
 - **Deuda aceptada:** `#[allow(dead_code)]` en `exec()`/`keywords()`/`categories()` de `Item` y en `usage`/`score`/`usage_score` de `history`.
 - **GLib descarta** un `.desktop` cuyo binario de `Exec` no exista: usar `/usr/bin/env` en fixtures de test.
+- **Verificación manual pendiente (4.4, sin Wayland en CI):** confirmar en runtime que Home/End navegan (con `Capture`), Up/Down envuelven, PageUp/PageDown ±10 acotan, y que la edición de texto (`Ctrl+A/Z`, `Shift+Home/End`) sigue intacta.
 - **Sin push:** considerar `git push -u origin feature/core-lanzamiento`.
