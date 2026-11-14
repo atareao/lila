@@ -1,44 +1,32 @@
-# Handoff — lila — 2026-11-14 (actualizado)
+# Handoff — lila — 2026-11-14
 
 ## Objetivo
 LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lanzamiento`: core de lanzamiento sólido antes de añadir extensiones. Issue #5 · Spec `openspec/changes/core-lanzamiento/` · Plan `plans/PLAN-001.md`.
 
 ## Estado
-- **Hecho (73 tests verde, clippy `-D warnings` y fmt limpios; Fase C/UI completa + Fase A (1.3/1.4/1.6)):**
-  - `d02958f` accesores de `Item`; `1c2f893` historial SQLite; `aac89b0` ranking; `7790206` correcciones de auditoría; `cbcb151` andamiaje SDD.
-  - `e3fe01f` **4.1** filas `ListBoxRow` (icono + nombre + subtítulo) + view-model puro `ResultRow` (`src/ui/row.rs`). Retirado `allow(dead_code)` de `icon_path`/`subtitle`.
-  - `aa75b92` **4.2** estilos por defecto de filas/selección en `Css::default()` (`result-name`, `result-subtitle`, `row:selected` + `background-image: none`).
-  - `98f7c0b` **4.3** predicado puro `ui::results_visible(count)` + `refresh()` reutilizable y render inicial en `activate()`, de modo que la lista se rige solo por existencia de resultados y muestra el historial al abrir el dashboard.
-  - `bd8e704` **4.4** módulo puro `ui::navigation` (`Move`/`target_index`/`PAGE_STEP`); wrap-around en Down/Up, PageUp/PageDown (±10) y Home/End. `EventControllerKey` en `PropagationPhase::Capture` (intercepta Home/End antes del `GtkText` interno del `Entry`); con modificadores se deja pasar la edición de texto.
-  - `0605f19` **4.5** `ui::navigation::scroll_value` puro + handler `row-selected` que ajusta la `vadjustment` para mantener visible la fila seleccionada. **Cierra la Fase C (UI)** → `C2` del plan marcada.
-  - `cf31b35` **1.3** (issue #6, cerrado) `actions::launch` devuelve `LaunchError` tipado (`MissingDesktopFile`/`NotLaunchable`/`Spawn`); field codes, `Terminal`, `Path`, `TryExec` y DBus delegados en `GDesktopAppInfo::launch_uris` (verificado en fuente GLib). Tests con fixtures en `TempDir`.
-  - `b3c03ea` **1.4** (issue #7, cerrado) label `launch-error` bajo el `Entry`: muestra el `LaunchError` al fallar y el dashboard permanece abierto; se limpia al reintentar/filtrar y en éxito. `Display` de `NotLaunchable` sin jerga `.desktop`; estilo `.launch-error` en `Css::default()`.
-  - `49e6f80` **1.6** (issue #8, cerrado) tests herméticos de `Exec` verbatim con field codes, `Terminal=true` como dato y `from_filename` inexistente → `None`; sin cambios de producción.
-- **En curso:** nada a medias; working tree limpio tras el commit de 1.6. **Fase A completa.**
+- **Hecho (79 tests verde, clippy `-D warnings`, fmt OK):**
+  - `0f01fd5` **Fase D / 5.1–5.2** (issue #9, cerrado): early-return de `main()` antes de `application.run()` eliminado; unicidad por GApplication; `Config::load`/`finder.init()`/`SqliteHistory::open` movidos a `connect_startup` (la instancia secundaria no toca BD ni escanea `.desktop`); re-presentación con `grab_focus`, guard de foco por generación (`Cell<u64>`) con re-verificación a 250 ms y limpieza de banner+entry solo si la ventana estaba oculta; `ui::error::ErrorBanner` puro (`Option<String>`, 6 tests) y `sync_label` sin préstamos del `RefCell` a través de GTK.
+  - `57dcbc9` **docs**: escenarios nuevos en `specs/launcher/invocation` (terminación de la secundaria, dependencia del bus de sesión, foco con margen re-verificado, banner conservado con ventana visible) + `tasks.md` (1.4, 5.1, 5.2 marcadas) + `plans/PLAN-001.md` D1 marcada.
 - **Rama actual:** `feature/core-lanzamiento` (base `development`). **Sin push al remoto.**
 
 ## Pendiente (misma rama)
-Fases A y C completas. Pendiente en orden:
-- **D** instancia única / re-present (5.1–5.3): al re-presentar la ventana existente, **limpiar el label de error** (hoy queda el mensaje obsoleto tras Escape + re-invocación).
-- **E** docs/README/verificación final (6.2–6.4): `docs/core-lanzamiento.md` debe listar como **manual** la verificación de `Terminal=true` (arranque delegado a GLib).
+- **5.3** acción DBus para atajo global del compositor: opcional, **diferida como follow-up**, no hecha.
+- **Fase E (6.2–6.4):** `docs/core-lanzamiento.md` (con `Terminal=true` como verificación **manual**), `README.md` y verificación final.
+- **Cierre de milestone:** `openspec archive core-lanzamiento`, renombrar a `plans/PLAN-001-ARCHIVED.md`, PR a `development`, cerrar #5.
 
 ## Punto de partida
 ```bash
-cd /data/rust/lila && git checkout feature/core-lanzamiento
-cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check   # verde (73 tests)
+cd /data/rust/lila && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
 ```
 
 ## Metodología / reglas
-- SDD + TDD por tarea (RED→GREEN→REFACTOR); marcar casillas en `openspec/changes/core-lanzamiento/tasks.md` y `plans/PLAN-001.md` (C1 y C2 ya marcadas).
-- Delegar código a subagentes; auditar con `@rust-reviewer` antes de commit. En esta sesión `@backend-dev` y `@rust-reviewer` funcionaron con fiabilidad.
-- Commits gitmoji + conventional en `feature/*`; PR a `development`; nunca commit directo a `main`/`development`.
-- **Política de issues (desde esta sesión):** abrir un issue por cada tarea que se inicie, asignado a `atareao` y referenciado desde #5; cerrarlo al commitear la tarea.
-- Cierre de milestone: `openspec archive core-lanzamiento`, renombrar `plans/PLAN-001-ARCHIVED.md`, PR → `development`, cerrar #5.
+- SDD + TDD por tarea (RED→GREEN→REFACTOR); issue por tarea asignado a `atareao` y referenciado desde #5; marcarlo cerrado al commitear.
+- Auditar con `@rust-reviewer` antes de commit; commits gitmoji + conventional en `feature/*`; PR a `development`; nunca commit directo a `main`/`development`.
 
 ## Riesgos y notas
-- **Rendimiento (auditoría #2/#3, follow-up):** `rank_items` ejecuta `load_all()` y `Item::id()` (→ `canonicalize()`, syscall FS) por ítem y por pulsación; cachear antes de cerrar el milestone.
-- **Estilos y config previa:** `Css::load()` solo escribe el default si `~/.config/lila/style.css` no existe → instalaciones previas no reciben los estilos nuevos sin borrar el fichero (comportamiento preexistente).
-- **Deuda aceptada:** `#[allow(dead_code)]` en `exec()`/`keywords()`/`categories()` de `Item` y en `usage`/`score`/`usage_score` de `history`.
-- **GLib descarta** un `.desktop` cuyo binario de `Exec` no exista: usar `/usr/bin/env` en fixtures de test.
-- **Verificación manual pendiente (4.4/4.5, sin Wayland en CI):** confirmar en runtime que Home/End navegan (con `Capture`), Up/Down envuelven, PageUp/PageDown ±10 acotan, que el scroll mantiene visible la fila seleccionada al navegar/filtrar, y que la edición de texto (`Ctrl+A/Z`, `Shift+Home/End`) sigue intacta.
-- **Sin push:** considerar `git push -u origin feature/core-lanzamiento`.
+- **Rendimiento:** `rank_items` llama `load_all()` y `Item::id()` (`canonicalize`) por ítem y pulsación → cachear antes de cerrar el milestone.
+- `Css::load()` no reescribe `style.css` existente (los estilos nuevos no llegan a instalaciones previas salvo borrando el fichero).
+- **Deuda aceptada:** `allow(dead_code)` en accesores de `Item` y en `usage`/`score`/`usage_score`.
+- GLib descarta `.desktop` con binario inexistente → usar `/usr/bin/env` en fixtures.
+- `connect_window_removed` vacío en `main.rs`: eliminar en Fase E.
+- **Verificación manual pendiente (sin Wayland en CI):** `lila & lila` → `pgrep -c lila` = 1; ventana re-presentada con foco y campo vacío; banner limpio tras error previo; pérdida de foco real dentro del margen de 250 ms oculta la ventana. Además Home/End, wrap-around, PageUp/PageDown y scroll-to-selected (heredado de 4.4/4.5).
