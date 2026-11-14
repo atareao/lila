@@ -35,7 +35,7 @@ const NO_USAGE: Usage = Usage {
 /// `fuzzy_weight * difuso + frequency_weight * frecuencia + recency_weight * recencia`.
 /// Si `query` no está vacía, los ítems que no coinciden se descartan; si está
 /// vacía, el término difuso es `0.0` para todos y ordenan frecuencia y recencia.
-/// El resultado se recorta a `cfg.max_results`.
+/// El resultado se recorta a `cfg.max_results` en todas las rutas.
 ///
 /// Si `cfg.history_enabled` es `false` o no hay repositorio de historial, el
 /// orden es el de [`filter_items`] (solo coincidencia difusa).
@@ -46,17 +46,26 @@ pub fn rank_items(
     cfg: &Config,
     now_millis: i64,
 ) -> Vec<Item> {
+    /// Recorta `items` al máximo de resultados configurado.
+    ///
+    /// Centraliza el respeto de `max_results` para que las rutas de respaldo
+    /// (historial desactivado, ausente o con error de carga) no lo ignoren.
+    fn cap(mut items: Vec<Item>, max_results: usize) -> Vec<Item> {
+        items.truncate(max_results);
+        items
+    }
+
     if !cfg.history_enabled {
-        return filter_items(items, query);
+        return cap(filter_items(items, query), cfg.max_results);
     }
     let Some(history) = history else {
-        return filter_items(items, query);
+        return cap(filter_items(items, query), cfg.max_results);
     };
     let usage_by_id: HashMap<String, Usage> = match history.load_all() {
         Ok(all) => all.into_iter().collect(),
         Err(err) => {
             tracing::warn!("No se pudo cargar el historial, se usa solo el difuso: {err}");
-            return filter_items(items, query);
+            return cap(filter_items(items, query), cfg.max_results);
         }
     };
 
@@ -79,8 +88,10 @@ pub fn rank_items(
         .collect();
 
     scored.sort_by(|left, right| right.0.total_cmp(&left.0));
-    scored.truncate(cfg.max_results);
-    scored.into_iter().map(|(_, item)| item).collect()
+    cap(
+        scored.into_iter().map(|(_, item)| item).collect(),
+        cfg.max_results,
+    )
 }
 
 #[cfg(test)]
@@ -241,6 +252,23 @@ mod tests {
 
         assert_eq!(names(&ranked), names(&filter_items(&items, "")));
         assert_eq!(names(&ranked), vec!["Firefox", "Gimp"]);
+    }
+
+    /// [TDD-RED-B3-01] Con el historial desactivado también se respeta el límite.
+    #[test]
+    fn disabled_history_respects_max_results_limit() {
+        let items: Vec<Item> = (0..5)
+            .map(|index| app_at("m", &format!("App{index}")))
+            .collect();
+        let config = Config {
+            history_enabled: false,
+            max_results: 2,
+            ..Config::default()
+        };
+
+        let ranked = rank_items(&items, "app", Some(&MemoryHistory::default()), &config, NOW);
+
+        assert_eq!(ranked.len(), 2);
     }
 
     /// [TDD-RED-B2-10] Sin repositorio de historial se usa el ranking difuso.

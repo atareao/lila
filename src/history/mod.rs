@@ -146,7 +146,7 @@ pub fn frequency_score(usage: &Usage) -> f64 {
 /// uso la edad se trata como cero, de modo que la puntuación nunca crece por
 /// usar un reloj adelantado.
 pub fn recency_score(usage: &Usage, now_millis: i64) -> f64 {
-    let age_days = (now_millis - usage.last_used).max(0) as f64 / MILLIS_PER_DAY;
+    let age_days = (now_millis.saturating_sub(usage.last_used)).max(0) as f64 / MILLIS_PER_DAY;
     0.5_f64.powf(age_days / HALF_LIFE_DAYS)
 }
 
@@ -244,7 +244,15 @@ impl SqliteHistory {
             Some(version) if version < SCHEMA_VERSION => {
                 conn.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])?;
             }
-            Some(_) => {}
+            Some(version) => {
+                if version > SCHEMA_VERSION {
+                    tracing::warn!(
+                        "La base de datos del historial tiene una versión de esquema futura \
+                         ({version} > {SCHEMA_VERSION}); puede que otra versión más reciente \
+                         de LiLa la haya escrito"
+                    );
+                }
+            }
         }
         Ok(())
     }

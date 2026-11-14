@@ -38,7 +38,7 @@ fn record_launch(history: Option<&SqliteHistory>, enabled: bool, item: &Item) {
     let Some(store) = history else {
         return;
     };
-    if let Err(err) = store.record(&item.id(), now() as i64) {
+    if let Err(err) = store.record(&item.id(), now_millis()) {
         tracing::warn!("No se pudo registrar el lanzamiento: {err}");
     }
 }
@@ -185,9 +185,6 @@ fn activate(
             .selected_row()
             .map(|r| r.index())
             .unwrap_or(0);
-        if idx < 0 {
-            return;
-        }
         if let Some(item) = current_launch.borrow().get(idx as usize).cloned() {
             match launch(&item) {
                 Ok(()) => {
@@ -208,7 +205,7 @@ fn activate(
         let history: Option<&dyn HistoryRepository> = history
             .as_ref()
             .map(|store| store.as_ref() as &dyn HistoryRepository);
-        let now_millis = now() as i64;
+        let now_millis = now_millis();
         let results = rank_items(&apps_changed, &text, history, &ranking_config, now_millis);
         listbox_changed.remove_all();
         for item in &results {
