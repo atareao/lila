@@ -4,16 +4,16 @@
 LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lanzamiento`: core de lanzamiento sólido antes de añadir extensiones. Issue #5 · Spec `openspec/changes/core-lanzamiento/` · Plan `plans/PLAN-001.md`.
 
 ## Estado
-- **Hecho (41 tests verde, clippy `-D warnings` y fmt limpios):**
+- **Hecho (44 tests verde, clippy `-D warnings` y fmt limpios):**
   - `d02958f` accesores de `Item`; `1c2f893` historial SQLite; `aac89b0` ranking; `7790206` correcciones de auditoría; `cbcb151` andamiaje SDD.
   - `e3fe01f` **4.1** filas `ListBoxRow` (icono + nombre + subtítulo) + view-model puro `ResultRow` (`src/ui/row.rs`). Retirado `allow(dead_code)` de `icon_path`/`subtitle`.
   - `aa75b92` **4.2** estilos por defecto de filas/selección en `Css::default()` (`result-name`, `result-subtitle`, `row:selected` + `background-image: none`).
-- **En curso:** nada a medias; working tree limpio tras el commit de 4.2.
+  - `98f7c0b` **4.3** predicado puro `ui::results_visible(count)` + `refresh()` reutilizable y render inicial en `activate()`, de modo que la lista se rige solo por existencia de resultados y muestra el historial al abrir el dashboard.
+- **En curso:** nada a medias; working tree limpio tras el commit de 4.3.
 - **Rama actual:** `feature/core-lanzamiento` (base `development`). **Sin push al remoto.**
 
 ## Pendiente (misma rama)
 Fase C restante, en orden:
-- **4.3** Visibilidad de la lista con consulta vacía y sin resultados (hoy `main.rs` oculta la lista si el texto está vacío → debe mostrarse con historial y ocultarse solo sin resultados).
 - **4.4** Navegación PageUp/PageDown/Home/End + wrap-around en flechas (hoy Down/Up no envuelven ni hay Page/Home/End).
 - **4.5** Scroll para mantener visible la fila seleccionada.
 Luego **A2** (1.3/1.4/1.6 robustez de `actions::launch` + error visible), **D** (5.1–5.3 instancia única/re-present), **E** (6.2–6.4 docs/README/verificación final).
