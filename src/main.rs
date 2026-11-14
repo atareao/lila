@@ -11,23 +11,23 @@ mod finders;
 mod models;
 mod utils;
 
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
+use actions::launch;
+use finders::filter_items;
 use gdk::Display;
 use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use models::{Config, Css};
+use models::{Config, Css, Item};
+use std::cell::RefCell;
 use std::io;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
-use tracing_subscriber;
 use utils::*;
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
 fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     if let Some(existing_window) = application.windows().into_iter().next() {
-        println!("La aplicación ya está ejecutándose, trayendo la ventana existente al frente.");
         existing_window.present(); // Muestra y enfoca la ventana existente
         return; // Salimos, no creamos una nueva ventana
     }
@@ -35,6 +35,15 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     {
         config = mutex_config.lock().unwrap();
     }
+    let apps: Vec<Item> = config
+        .extensions
+        .iter()
+        .find(|e| e.name == "application-finder")
+        .or_else(|| config.extensions.first())
+        .map(|e| e.finder.search(""))
+        .unwrap_or_default();
+    let apps = Rc::new(apps);
+    let current: Rc<RefCell<Vec<Item>>> = Rc::new(RefCell::new(Vec::new()));
     // Create a normal GTK window however you like
     let window = gtk::ApplicationWindow::new(application);
     window.set_size_request(config.width, config.height);
@@ -54,7 +63,6 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     window.auto_exclusive_zone_enable();
 
     window.connect_close_request(move |win| {
-        println!("Señal 'close-request' de la ventana recibida. Ocultando la ventana en lugar de cerrarla.");
         win.set_visible(false); // Oculta la ventana
         true.into()
     });
@@ -80,7 +88,6 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
 
     window.connect_is_active_notify(|win| {
         debug!("{:?}", win.is_active());
-        println!("{:?}", win);
     });
     window.connect_notify_local(Some("is-active"), move |win, _| {
         debug!("{:?}", win.is_active());
@@ -91,18 +98,6 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
             }
         }
     });
-    let triggers = vec!["g", "s"];
-
-    // Lista de opciones para autocompletar
-    let options = vec![
-        "Rust",
-        "Ruby",
-        "Python",
-        "Perl",
-        "PHP",
-        "Java",
-        "JavaScript",
-    ];
     // Crear el controller para detectar teclas
     let window_clone = window.clone();
 
@@ -122,6 +117,7 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
     listbox.set_visible(false);
     listbox.set_can_focus(false);
 
+    let listbox_sel = listbox.clone();
     let key_controller = gtk::EventControllerKey::new();
     key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
         debug!("Tecla pulsada: {:?}", keyval.name());
@@ -131,86 +127,66 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
             window_clone.set_visible(false);
             debug!("Window hidden");
             true.into()
-        } else if keyval == gdk::Key::Return {
-            debug!("Se pulsó Enter");
+        } else if keyval == gdk::Key::Down {
+            let next = listbox_sel
+                .selected_row()
+                .map(|r| r.index() + 1)
+                .unwrap_or(0);
+            if let Some(row) = listbox_sel.row_at_index(next) {
+                listbox_sel.select_row(Some(&row));
+            }
+            true.into()
+        } else if keyval == gdk::Key::Up {
+            let prev = listbox_sel
+                .selected_row()
+                .map(|r| r.index() - 1)
+                .unwrap_or(0)
+                .max(0);
+            if let Some(row) = listbox_sel.row_at_index(prev) {
+                listbox_sel.select_row(Some(&row));
+            }
             true.into()
         } else {
             false.into()
         }
     });
     entry.add_controller(key_controller);
-    let entry_clone_for_activate = entry.clone();
-    let listbox_clone = listbox.clone();
+    let current_launch = Rc::clone(&current);
+    let listbox_launch = listbox.clone();
+    let window_launch = window.clone();
     entry.connect_activate(move |_| {
-        let entered_text = entry_clone_for_activate.text();
-        println!("Texto introducido (señal activate): \"{}\"", entered_text);
-        if let Some(first_row) = listbox_clone.row_at_index(0) {
-            if let Some(widget) = first_row.child() {
-                if let Ok(label) = widget.downcast::<Label>() {
-                    debug!("Selected text: {}", label.text());
-                    entry_clone_for_activate.set_text(&label.text());
-                    entry_clone_for_activate.set_position(-1);
-                }
+        let idx = listbox_launch
+            .selected_row()
+            .map(|r| r.index())
+            .unwrap_or(0);
+        if idx < 0 {
+            return;
+        }
+        if let Some(item) = current_launch.borrow().get(idx as usize).cloned() {
+            match launch(&item) {
+                Ok(()) => window_launch.set_visible(false),
+                Err(err) => tracing::error!("No se pudo lanzar la aplicación: {err}"),
             }
         }
-        // Opcional: borrar el Entry después de procesar
-        // entry_clone.set_text("");
     });
 
-    let entry_clone_for_listbox = entry.clone();
-    listbox.connect_selected_rows_changed(move |d| {
-        if let Some(selected_row) = d.selected_row() {
-            if let Some(widget) = selected_row.child() {
-                if let Ok(label) = widget.downcast::<Label>() {
-                    debug!("Selected text: {}", label.text());
-                    entry_clone_for_listbox.set_text(&label.text());
-                    entry_clone_for_listbox.set_position(-1);
-                }
-            }
-        }
-    });
-    // Filtrado manual al escribir
+    // Filtrado en vivo al escribir
+    let apps_changed = Rc::clone(&apps);
+    let current_changed = Rc::clone(&current);
+    let listbox_changed = listbox.clone();
     entry.connect_changed(move |e| {
-        let text = e.text().to_string().to_lowercase();
-        if text.contains(" ") {
-            let trigger = text.split_whitespace().collect::<Vec<&str>>()[0];
-            if triggers.contains(&trigger) {
-                debug!("trigger: {:?}", trigger);
-                return;
-            }
+        let text = e.text().to_string();
+        let results = filter_items(&apps_changed, &text);
+        listbox_changed.remove_all();
+        for item in &results {
+            listbox_changed.append(&Label::new(Some(item.name())));
         }
-        debug!("text: {}", text);
-
-        // Limpiar el modelo
-        listbox.remove_all();
-
-        // Agregar opciones filtradas
-        let matcher = SkimMatcherV2::default();
-
-        let mut filtered_and_scored_options: Vec<(&str, i64)> = options
-            .iter()
-            .filter_map(|&option| {
-                let result = matcher.fuzzy_match(option, &text);
-                debug!("option: {:?}, result: {:?}", option, result);
-
-                result.map(|score| (option, score)) // If result is Some(score), transform to (option, score)
-            })
-            .collect(); // Collect into a Vec of (option, score) tuples
-        filtered_and_scored_options.sort_by(|a, b| b.1.cmp(&a.1));
-        let result = filtered_and_scored_options
-            .into_iter() // Use into_iter to consume the vector and avoid an extra copy
-            .map(|(option, _score)| option)
-            .collect::<Vec<&str>>();
-
-        for option in result.as_slice() {
-            let label = Label::new(Some(option));
-            listbox.append(&label);
+        *current_changed.borrow_mut() = results;
+        let hay = !current_changed.borrow().is_empty() && !e.text().is_empty();
+        listbox_changed.set_visible(hay);
+        if hay {
+            listbox_changed.select_row(listbox_changed.row_at_index(0).as_ref());
         }
-
-        debug!("Number of items: {}", result.len());
-
-        // Mostrar/ocultar según haya coincidencias
-        listbox.set_visible(!result.is_empty() && !e.text().is_empty());
     });
 
     vbox.append(&entry);
@@ -221,14 +197,18 @@ fn activate(application: &gtk::Application, mutex_config: &Arc<Mutex<Config>>) {
 }
 
 fn main() -> io::Result<()> {
-    tracing_subscriber::fmt().with_env_filter("debug").init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .init();
     match gtk::init() {
         Ok(result) => debug!("GTK initialized successfully: {:?}", result),
         Err(err) => debug!("Failed to initialize GTK: {}", err),
     }
     let application = gtk::Application::new(Some(APP_ID), Default::default());
     if let Some(existing_window) = application.windows().into_iter().next() {
-        println!("La aplicación ya está ejecutándose, trayendo la ventana existente al frente.");
         existing_window.present(); // Muestra y enfoca la ventana existente
         return Ok(()); // Salimos, no creamos una nueva ventana
     }
@@ -247,7 +227,7 @@ fn main() -> io::Result<()> {
         debug!("Application activated");
         activate(app, &config_clone);
     });
-    application.connect_startup(|app| {
+    application.connect_startup(|_app| {
         let provider = Css::load().expect("Can not load CSS file");
         gtk::style_context_add_provider_for_display(
             &Display::default().expect("Could not connect to a display."),
@@ -256,13 +236,12 @@ fn main() -> io::Result<()> {
         );
     });
     application.connect_window_removed(|app, _window| {
-            if app.windows().is_empty() {
-                 println!("Todas las ventanas han sido cerradas/ocultadas. La aplicación permanece en segundo plano debido a `app.hold()`.");
-                 // Si quieres que la aplicación se cierre al cerrar la última ventana visible,
-                 // y has usado `app.hold()`, aquí necesitarías llamar a `app.release()` para contrarrestar el `hold`.
-                 // Si NO usas `app.hold()`, el comportamiento por defecto de GTK es que la aplicación termine cuando no haya más ventanas.
-            }
-        });
+        if app.windows().is_empty() {
+            // Si quieres que la aplicación se cierre al cerrar la última ventana visible,
+            // y has usado `app.hold()`, aquí necesitarías llamar a `app.release()` para contrarrestar el `hold`.
+            // Si NO usas `app.hold()`, el comportamiento por defecto de GTK es que la aplicación termine cuando no haya más ventanas.
+        }
+    });
     debug!("Startup completed");
     application.run();
     debug!("Application exited");

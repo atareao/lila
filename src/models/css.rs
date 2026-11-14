@@ -21,7 +21,7 @@ impl Css {
                 provider.load_from_path(config_dir);
                 Ok(provider)
             } else {
-                match fs::write(config_dir, Css::default().to_string()) {
+                match fs::write(config_dir, Css::default()) {
                     Ok(_) => debug!("Saved"),
                     Err(e) => error!("Error al escribir el archivo: {}", e),
                 }
