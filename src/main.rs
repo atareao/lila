@@ -10,6 +10,7 @@ mod actions;
 mod finders;
 mod history;
 mod models;
+mod ui;
 mod utils;
 
 use actions::launch;
@@ -41,6 +42,39 @@ fn record_launch(history: Option<&SqliteHistory>, enabled: bool, item: &Item) {
     if let Err(err) = store.record(&item.id(), now_millis()) {
         tracing::warn!("No se pudo registrar el lanzamiento: {err}");
     }
+}
+
+/// Construye la fila de resultado: icono opcional, nombre y subtítulo atenuado.
+///
+/// Si la fila no tiene icono, se compone solo con los labels para no dejar un
+/// hueco en la disposición.
+fn build_result_row(row: &ui::row::ResultRow) -> gtk::ListBoxRow {
+    let list_row = gtk::ListBoxRow::new();
+    let hbox = gtk::Box::new(gtk::Orientation::Horizontal, ICON_TEXT_SPACING);
+    hbox.set_valign(gtk::Align::Center);
+
+    if let Some(icon_path) = row.icon_path() {
+        let image = gtk::Image::from_file(icon_path);
+        image.set_pixel_size(ICON_PIXEL_SIZE);
+        hbox.append(&image);
+    }
+
+    let labels = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    labels.set_valign(gtk::Align::Center);
+    let name = Label::new(Some(row.name()));
+    name.set_xalign(0.0);
+    name.add_css_class("result-name");
+    labels.append(&name);
+    if let Some(subtitle) = row.subtitle() {
+        let subtitle = Label::new(Some(subtitle));
+        subtitle.set_xalign(0.0);
+        subtitle.add_css_class("result-subtitle");
+        labels.append(&subtitle);
+    }
+    hbox.append(&labels);
+
+    list_row.set_child(Some(&hbox));
+    list_row
 }
 
 fn activate(
@@ -209,7 +243,8 @@ fn activate(
         let results = rank_items(&apps_changed, &text, history, &ranking_config, now_millis);
         listbox_changed.remove_all();
         for item in &results {
-            listbox_changed.append(&Label::new(Some(item.name())));
+            let row = ui::row::ResultRow::from_item(item);
+            listbox_changed.append(&build_result_row(&row));
         }
         *current_changed.borrow_mut() = results;
         let hay = !current_changed.borrow().is_empty() && !e.text().is_empty();

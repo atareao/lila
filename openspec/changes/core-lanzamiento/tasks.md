@@ -27,7 +27,7 @@
 
 ## 4. Presentación y teclado
 
-- [ ] 4.1 Filas con `ListBoxRow` (icono + nombre + subtítulo).
+- [x] 4.1 Filas con `ListBoxRow` (icono + nombre + subtítulo).
 - [ ] 4.2 Estilos por defecto para filas y selección.
 - [ ] 4.3 Visibilidad de la lista con consulta vacía y sin resultados.
 - [ ] 4.4 Navegación con PageUp/PageDown/Home/End y wrap-around en las flechas.

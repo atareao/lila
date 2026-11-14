@@ -30,8 +30,6 @@ impl Item {
     }
 
     /// Ruta del icono de la aplicación (si existe)
-    // TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-    #[allow(dead_code)]
     pub fn icon_path(&self) -> Option<&Path> {
         match self {
             Item::App(app) => app.icon_path.as_deref(),
@@ -49,8 +47,6 @@ impl Item {
 
     /// Subtítulo derivado de `GenericName` o, en su defecto, `Comment`.
     /// Devuelve `None` sin entrar en pánico si el `.desktop` no se puede cargar.
-    // TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-    #[allow(dead_code)]
     pub fn subtitle(&self) -> Option<String> {
         match self {
             Item::App(app) => {
