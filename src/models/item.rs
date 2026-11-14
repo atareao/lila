@@ -6,3 +6,11 @@ use serde::{Deserialize, Serialize};
 pub enum Item {
     App(App),
 }
+
+impl Item {
+    pub fn name(&self) -> &str {
+        match self {
+            Item::App(app) => &app.name,
+        }
+    }
+}
