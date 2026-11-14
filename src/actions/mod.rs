@@ -27,10 +27,13 @@ impl fmt::Display for LaunchError {
             LaunchError::MissingDesktopFile(path) => {
                 write!(f, "No se encontró el fichero .desktop: {}", path.display())
             }
+            // Sin mencionar las claves del `.desktop` (`Exec`, `TryExec`,
+            // `Type`): el mensaje lo lee quien usa el lanzador, no quien
+            // depura la entrada.
             LaunchError::NotLaunchable(path) => write!(
                 f,
-                "La aplicación no se puede lanzar: {} no es una entrada lanzable \
-                 (revisa Exec/TryExec y el tipo de la entrada)",
+                "La aplicación no se puede lanzar: {} no es una entrada de \
+                 aplicación válida",
                 path.display()
             ),
             LaunchError::Spawn(err) => {
@@ -187,6 +190,53 @@ TryExec=/nonexistent/binary-xyz
         // Margen para detectar un spawn asíncrono que no debería haberse iniciado.
         std::thread::sleep(Duration::from_millis(300));
         assert!(!args.exists(), "no debe intentarse ejecutar Exec: {err}");
+    }
+
+    /// [TDD-RED-04] El mensaje de un `.desktop` ausente es presentable al
+    /// usuario: no vacío, distinto del `Debug`, nombra el fichero y explica el
+    /// fallo (escenario "Fallo de lanzamiento visible").
+    #[test]
+    fn missing_desktop_message_is_user_facing() {
+        let path = PathBuf::from("/tmp/launcher/ghost.desktop");
+        let err = LaunchError::MissingDesktopFile(path.clone());
+        let message = err.to_string();
+
+        assert!(!message.trim().is_empty(), "el mensaje no debe estar vacío");
+        assert_ne!(message, format!("{err:?}"), "no debe volcar el Debug");
+        assert!(
+            message.contains("ghost.desktop"),
+            "debe nombrar el fichero: {message}"
+        );
+        assert!(
+            message.to_lowercase().contains("no se"),
+            "debe explicar el fallo: {message}"
+        );
+    }
+
+    /// [TDD-RED-05] El mensaje de una entrada no lanzable evita la jerga de las
+    /// claves del `.desktop` (`Exec`/`TryExec`/`Type`): el usuario final no debe
+    /// interpretar el formato del fichero, solo entender que la app no arranca.
+    #[test]
+    fn not_launchable_message_is_user_facing_without_entry_jargon() {
+        let path = PathBuf::from("/tmp/launcher/rota.desktop");
+        let err = LaunchError::NotLaunchable(path.clone());
+        let message = err.to_string();
+
+        assert!(!message.trim().is_empty(), "el mensaje no debe estar vacío");
+        assert!(
+            message.contains("rota.desktop"),
+            "debe nombrar la entrada: {message}"
+        );
+        assert!(
+            message.to_lowercase().contains("no se"),
+            "debe explicar el fallo: {message}"
+        );
+        for jargon in ["Exec", "TryExec", "Type="] {
+            assert!(
+                !message.contains(jargon),
+                "sin jerga de claves del .desktop ('{jargon}'): {message}"
+            );
+        }
     }
 
     /// [TDD-RED-03] `Exec` con *field codes* (`%U`, `%f`) y sin URIs: GLib los

@@ -53,6 +53,13 @@ impl Css {
                 opacity: 0.6;
                 font-size: smaller;
             }
+            .launch-error {
+                /* Rojo claro: legible sobre fondo oscuro y sin cambiar el
+                   tamaño del layout (solo aparece cuando hay error). */
+                color: #ff6b6b;
+                font-size: smaller;
+                padding: 0 4px;
+            }
             #lila-listbox row:selected {
                 background-color: rgba(128, 128, 128, 0.25);
                 /* Un tema GTK puede pintar un gradiente en la fila seleccionada;
@@ -109,6 +116,16 @@ mod tests {
         assert!(
             block.contains("opacity"),
             "la regla .result-subtitle debería atenuarse con opacity: {block}"
+        );
+    }
+
+    #[test]
+    fn default_css_styles_launch_error() {
+        let css = Css::default();
+        let block = rule_block(&css, ".launch-error");
+        assert!(
+            block.contains("color"),
+            "la regla .launch-error debería definir un color legible: {block}"
         );
     }
 

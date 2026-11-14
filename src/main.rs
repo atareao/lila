@@ -211,6 +211,15 @@ fn activate(
     // Entry donde el usuario escribe
     let entry = gtk::Entry::new();
 
+    // Mensaje de error de lanzamiento. Nace oculto: solo se muestra cuando un
+    // intento de lanzar falla, y se limpia al reintentar la búsqueda. Es lo que
+    // mantiene informado al usuario mientras el dashboard sigue visible.
+    let error_label = Label::new(None);
+    error_label.add_css_class("launch-error");
+    error_label.set_visible(false);
+    error_label.set_wrap(true);
+    error_label.set_xalign(0.0);
+
     // ListBox para mostrar sugerencias
     let scroll = ScrolledWindow::builder()
         .name(SCROLL_NAME)
@@ -284,6 +293,7 @@ fn activate(
     let listbox_launch = listbox.clone();
     let window_launch = window.clone();
     let history_launch = history.clone();
+    let error_launch = error_label.clone();
     entry.connect_activate(move |_| {
         let idx = listbox_launch
             .selected_row()
@@ -293,9 +303,17 @@ fn activate(
             match launch(&item) {
                 Ok(()) => {
                     window_launch.set_visible(false);
+                    error_launch.set_text("");
+                    error_launch.set_visible(false);
                     record_launch(history_launch.as_deref(), history_enabled, &item);
                 }
-                Err(err) => tracing::error!("No se pudo lanzar la aplicación: {err}"),
+                Err(err) => {
+                    // La ventana NO se oculta: el dashboard permanece visible
+                    // con el motivo del fallo para que el usuario lo vea.
+                    tracing::error!("No se pudo lanzar la aplicación: {err}");
+                    error_launch.set_text(&err.to_string());
+                    error_launch.set_visible(true);
+                }
             }
         }
     });
@@ -310,7 +328,11 @@ fn activate(
         let entry = entry.clone();
         let history = history.clone();
         let ranking_config = Rc::clone(&ranking_config);
+        let error = error_label.clone();
         Rc::new(move || {
+            // Reintentar la búsqueda descarta el error del intento anterior.
+            error.set_text("");
+            error.set_visible(false);
             let text = entry.text().to_string();
             let history: Option<&dyn HistoryRepository> = history
                 .as_ref()
@@ -336,6 +358,7 @@ fn activate(
     entry.connect_changed(move |_| refresh_changed());
 
     vbox.append(&entry);
+    vbox.append(&error_label);
     vbox.append(&scroll);
     window.set_child(Some(&vbox));
 
