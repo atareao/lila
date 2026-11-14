@@ -67,7 +67,7 @@ Convertir LiLa de prototipo a un lanzador de aplicaciones sólido, rápido y agr
 - [x] **C2 — Teclado completo.** PageUp/PageDown, Home/End, wrap-around en Up/Down y `scroll-to-selected`. Mantener Escape (ocultar) y Enter (lanzar). Reservar Ctrl+Enter para acciones secundarias (follow-up).
 
 ### Fase D — Invocación
-- [ ] **D1 — Instancia única.** Corregir el arranque: eliminar el early-return defectuoso previo a `application.run()`; garantizar que una segunda invocación del binario re-presenta la ventana existente. Opcional: acción DBus para atajo global del compositor.
+- [x] **D1 — Instancia única.** (hecho: early-return de `main()` eliminado; unicidad por GApplication, inicialización pesada en `connect_startup`; re-presentación limpia banner y entry solo si estaba oculta, `grab_focus` con margen de foco re-verificado; `ui::error::ErrorBanner` puro + 6 tests; verificación en vivo pendiente de display) Opcional: acción DBus para atajo global del compositor (5.3): diferida como follow-up, no hecha.
 
 ### Fase E — Config, docs y verificación
 - [ ] **E1 — `Config` ampliada.** Nuevos campos con `#[serde(default)]` (límite de resultados, pesos del ranking, historial on/off). La carga debe tolerar configs antiguas.
