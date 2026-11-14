@@ -4,7 +4,7 @@
 
 - [x] 1.1 Añadir accesores a `Item`: `id()`, `icon_path()`, `subtitle()`, `exec()`, `keywords()`/`categories()`.
 - [x] 1.2 Implementar `id()` como ruta canónica del fichero `.desktop`.
-- [ ] 1.3 Robustecer `actions::launch`: field codes, `Terminal=true`, `Path`, `TryExec` y activación DBus.
+- [x] 1.3 Robustecer `actions::launch`: field codes, `Terminal=true`, `Path`, `TryExec` y activación DBus. *(Verificado: GLib ya aplica los cinco en `g_desktop_app_info_load_from_keyfile()` + `launch_uris()`; se añadió `LaunchError` tipado y tests de los escenarios.)*
 - [ ] 1.4 Hacer visible el error de lanzamiento al usuario y mantener el dashboard abierto si falla.
 - [x] 1.5 Registrar el lanzamiento en el historial tras un éxito.
 - [ ] 1.6 Tests: parsing de `Exec`, caso `Terminal`, `.desktop` inexistente.
