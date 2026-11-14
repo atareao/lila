@@ -63,7 +63,7 @@ Convertir LiLa de prototipo a un lanzador de aplicaciones sólido, rápido y agr
 - [x] **B2 — Ranking combinado.** (hecho: `rank_items`, pesos y `max_results` en `Config`, cableado en `main.rs`, 11 tests) `final_score = w_fuzzy*fuzzy + w_freq*ln(1+lanzamientos) + w_recency*decay(último_uso)`, con pesos en `Config`. Nuevo `rank_items` (o `filter_items` extendido) ordena por score final, consultando el historial. Tests: query vacía → dominan frecuencia/recencia; el fuzzy puede adelantar a un ítem no usado.
 
 ### Fase C — UI
-- [ ] **C1 — Filas con icono y subtítulo.** Sustituir `Label` por `ListBoxRow` con `Box` horizontal: `Image` (icono de la app) + `Box` vertical (nombre + subtítulo atenuado). Estilos en `Css::default()`, respetando `#lila-listbox`.
+- [x] **C1 — Filas con icono y subtítulo.** Sustituir `Label` por `ListBoxRow` con `Box` horizontal: `Image` (icono de la app) + `Box` vertical (nombre + subtítulo atenuado). Estilos en `Css::default()`, respetando `#lila-listbox`.
 - [ ] **C2 — Teclado completo.** PageUp/PageDown, Home/End, wrap-around en Up/Down y `scroll-to-selected`. Mantener Escape (ocultar) y Enter (lanzar). Reservar Ctrl+Enter para acciones secundarias (follow-up).
 
 ### Fase D — Invocación
