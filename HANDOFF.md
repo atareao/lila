@@ -27,7 +27,7 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check   #
 ```
 
 ## Metodología / reglas
-- SDD + TDD por tarea (RED→GREEN→REFACTOR); marcar casillas en `openspec/changes/core-lanzamiento/tasks.md` y `plans/PLAN-001.md` (C1 ya marcada).
+- SDD + TDD por tarea (RED→GREEN→REFACTOR); marcar casillas en `openspec/changes/core-lanzamiento/tasks.md` y `plans/PLAN-001.md` (C1 y C2 ya marcadas).
 - Delegar código a subagentes; auditar con `@rust-reviewer` antes de commit. En esta sesión `@backend-dev` y `@rust-reviewer` funcionaron con fiabilidad.
 - Commits gitmoji + conventional en `feature/*`; PR a `development`; nunca commit directo a `main`/`development`.
 - Cierre de milestone: `openspec archive core-lanzamiento`, renombrar `plans/PLAN-001-ARCHIVED.md`, PR → `development`, cerrar #5.
@@ -37,5 +37,5 @@ cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check   #
 - **Estilos y config previa:** `Css::load()` solo escribe el default si `~/.config/lila/style.css` no existe → instalaciones previas no reciben los estilos nuevos sin borrar el fichero (comportamiento preexistente).
 - **Deuda aceptada:** `#[allow(dead_code)]` en `exec()`/`keywords()`/`categories()` de `Item` y en `usage`/`score`/`usage_score` de `history`.
 - **GLib descarta** un `.desktop` cuyo binario de `Exec` no exista: usar `/usr/bin/env` en fixtures de test.
-- **Verificación manual pendiente (4.4, sin Wayland en CI):** confirmar en runtime que Home/End navegan (con `Capture`), Up/Down envuelven, PageUp/PageDown ±10 acotan, y que la edición de texto (`Ctrl+A/Z`, `Shift+Home/End`) sigue intacta.
+- **Verificación manual pendiente (4.4/4.5, sin Wayland en CI):** confirmar en runtime que Home/End navegan (con `Capture`), Up/Down envuelven, PageUp/PageDown ±10 acotan, que el scroll mantiene visible la fila seleccionada al navegar/filtrar, y que la edición de texto (`Ctrl+A/Z`, `Shift+Home/End`) sigue intacta.
 - **Sin push:** considerar `git push -u origin feature/core-lanzamiento`.
