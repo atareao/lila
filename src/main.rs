@@ -230,33 +230,47 @@ fn activate(
         }
     });
 
+    // Recalcula los resultados a partir del texto actual del entry. Se usa
+    // tanto al escribir (filtrado en vivo) como en el render inicial, ya que
+    // `gtk::Entry` no emite `changed` al construirse.
+    let refresh: Rc<dyn Fn()> = {
+        let apps = Rc::clone(&apps);
+        let current = Rc::clone(&current);
+        let listbox = listbox.clone();
+        let entry = entry.clone();
+        let history = history.clone();
+        let ranking_config = Rc::clone(&ranking_config);
+        Rc::new(move || {
+            let text = entry.text().to_string();
+            let history: Option<&dyn HistoryRepository> = history
+                .as_ref()
+                .map(|store| store.as_ref() as &dyn HistoryRepository);
+            let now_millis = now_millis();
+            let results = rank_items(&apps, &text, history, &ranking_config, now_millis);
+            listbox.remove_all();
+            for item in &results {
+                let row = ui::row::ResultRow::from_item(item);
+                listbox.append(&build_result_row(&row));
+            }
+            let hay = ui::results_visible(results.len());
+            *current.borrow_mut() = results;
+            listbox.set_visible(hay);
+            if hay {
+                listbox.select_row(listbox.row_at_index(0).as_ref());
+            }
+        })
+    };
+
     // Filtrado en vivo al escribir
-    let apps_changed = Rc::clone(&apps);
-    let current_changed = Rc::clone(&current);
-    let listbox_changed = listbox.clone();
-    entry.connect_changed(move |e| {
-        let text = e.text().to_string();
-        let history: Option<&dyn HistoryRepository> = history
-            .as_ref()
-            .map(|store| store.as_ref() as &dyn HistoryRepository);
-        let now_millis = now_millis();
-        let results = rank_items(&apps_changed, &text, history, &ranking_config, now_millis);
-        listbox_changed.remove_all();
-        for item in &results {
-            let row = ui::row::ResultRow::from_item(item);
-            listbox_changed.append(&build_result_row(&row));
-        }
-        *current_changed.borrow_mut() = results;
-        let hay = !current_changed.borrow().is_empty() && !e.text().is_empty();
-        listbox_changed.set_visible(hay);
-        if hay {
-            listbox_changed.select_row(listbox_changed.row_at_index(0).as_ref());
-        }
-    });
+    let refresh_changed = Rc::clone(&refresh);
+    entry.connect_changed(move |_| refresh_changed());
 
     vbox.append(&entry);
     vbox.append(&scroll);
     window.set_child(Some(&vbox));
+
+    // Render inicial: consulta vacía con el historial disponible.
+    refresh();
 
     window.present();
 }
