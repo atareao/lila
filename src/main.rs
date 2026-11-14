@@ -21,13 +21,21 @@ use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use history::{HistoryRepository, SqliteHistory};
 use models::{Config, Css, Item};
-use std::cell::RefCell;
+use std::cell::{Cell, OnceCell, RefCell};
 use std::io;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tracing::debug;
+use ui::error::ErrorBanner;
 use ui::navigation::{Move, scroll_value, target_index};
 use utils::*;
+
+/// Margen tras presentar en el que una pérdida de foco no oculta la ventana.
+///
+/// El compositor puede no conceder el foco al mapear la superficie; durante
+/// este margen la pérdida se aplaza y se re-verifica al terminar.
+const PRESENT_FOCUS_GRACE: Duration = Duration::from_millis(250);
 
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
 /// Traduce una tecla de navegación de GTK a un movimiento de la selección.
@@ -125,13 +133,166 @@ fn build_result_row(row: &ui::row::ResultRow) -> gtk::ListBoxRow {
     list_row
 }
 
+/// Widgets y estado transitorio del dashboard ya construido.
+///
+/// GTK construye la ventana una sola vez; las invocaciones posteriores solo la
+/// re-presentan. La ventana, el banner y el `Entry` viven aquí para poder
+/// re-presentarlos y limpiarlos sin reconstruir la UI.
+struct LaunchWidgets {
+    window: Option<gtk::ApplicationWindow>,
+    entry: Option<gtk::Entry>,
+    label: Option<Label>,
+    banner: ErrorBanner,
+    /// Generación del margen anti-pérdida-de-foco; `0` = margen desarmado.
+    focus_loss_grace: Rc<Cell<u64>>,
+}
+
+impl LaunchWidgets {
+    fn new() -> Self {
+        Self {
+            window: None,
+            entry: None,
+            label: None,
+            banner: ErrorBanner::new(),
+            focus_loss_grace: Rc::new(Cell::new(0)),
+        }
+    }
+}
+
+/// Handle clonable al estado transitorio del dashboard.
+#[derive(Clone)]
+struct LaunchUi(Rc<RefCell<LaunchWidgets>>);
+
+impl LaunchUi {
+    fn new() -> Self {
+        Self(Rc::new(RefCell::new(LaunchWidgets::new())))
+    }
+
+    /// Guarda las referencias a la ventana y a sus widgets transitorios.
+    fn bind(&self, window: &gtk::ApplicationWindow, entry: &gtk::Entry, label: &Label) {
+        {
+            let mut widgets = self.0.borrow_mut();
+            widgets.window = Some(window.clone());
+            widgets.entry = Some(entry.clone());
+            widgets.label = Some(label.clone());
+        }
+        self.sync_label();
+    }
+
+    /// Ventana del dashboard, si ya se construyó.
+    fn window(&self) -> Option<gtk::ApplicationWindow> {
+        self.0.borrow().window.clone()
+    }
+
+    /// `Entry` de búsqueda, si la ventana ya se construyó.
+    fn entry(&self) -> Option<gtk::Entry> {
+        self.0.borrow().entry.clone()
+    }
+
+    /// Muestra el motivo de un fallo de lanzamiento.
+    fn show_error(&self, message: impl Into<String>) {
+        self.0.borrow_mut().banner.show(message);
+        self.sync_label();
+    }
+
+    /// Descarta el error del intento anterior.
+    ///
+    /// Si el banner ya estaba oculto no se toca el `Label`: el refresco de cada
+    /// pulsación no debe pagar dos `set` sobre GTK.
+    fn clear_error(&self) {
+        let was_visible = {
+            let mut widgets = self.0.borrow_mut();
+            let was_visible = widgets.banner.is_visible();
+            widgets.banner.clear();
+            was_visible
+        };
+        if was_visible {
+            self.sync_label();
+        }
+    }
+
+    /// Refleja el banner en su `Label` sin retener préstamos del estado.
+    ///
+    /// El préstamo se suelta antes de tocar el widget: mutar GTK mientras el
+    /// `RefCell` sigue prestado puede reentrar en este estado desde una señal.
+    fn sync_label(&self) {
+        let (label, visible, text) = {
+            let widgets = self.0.borrow();
+            (
+                widgets.label.clone(),
+                widgets.banner.is_visible(),
+                widgets.banner.text().to_string(),
+            )
+        };
+        if let Some(label) = label {
+            ui::error::apply(&label, visible, &text);
+        }
+    }
+
+    /// Arma el margen temporal en el que una pérdida de foco no oculta la
+    /// ventana.
+    ///
+    /// Cada armado estrena generación: el temporizador de una presentación
+    /// anterior ve que ya no es el vigente y no desarma el margen nuevo, así
+    /// que presentaciones seguidas no lo truncan ni acumulan limpiezas
+    /// prematuras.
+    fn arm_focus_loss_grace(&self) {
+        let grace = self.focus_loss_grace();
+        let armed = grace.get().wrapping_add(1);
+        grace.set(armed);
+        gtk::glib::timeout_add_local_once(PRESENT_FOCUS_GRACE, move || {
+            // Solo desarma el margen el temporizador de la última generación.
+            if grace.get() == armed {
+                grace.set(0);
+            }
+        });
+    }
+
+    /// Generación del margen; `0` significa margen desarmado.
+    fn focus_loss_grace(&self) -> Rc<Cell<u64>> {
+        Rc::clone(&self.0.borrow().focus_loss_grace)
+    }
+
+    /// Re-presenta la ventana existente, con foco y estado transitorio limpio.
+    ///
+    /// `present` va antes que la limpieza: así el refresco que dispara vaciar
+    /// el `Entry` corre con la ventana ya mapeada y el scroll se recoloca de
+    /// forma determinista. Si la ventana ya estaba visible se conserva lo que
+    /// el usuario tenía escrito; solo se parte de cero al re-presentar una
+    /// ventana oculta.
+    fn present_existing(&self) {
+        let Some(window) = self.window() else {
+            return;
+        };
+        let was_visible = window.is_visible();
+        // El margen se arma antes de presentar para cubrir también el `map`.
+        self.arm_focus_loss_grace();
+        window.present(); // Muestra y enfoca la ventana existente
+        let entry = self.entry();
+        if let Some(entry) = &entry {
+            entry.grab_focus();
+        }
+        if !was_visible {
+            self.clear_error();
+            if let Some(entry) = &entry {
+                entry.set_text("");
+            }
+        }
+    }
+}
+
 fn activate(
     application: &gtk::Application,
     mutex_config: &Arc<Mutex<Config>>,
     history: Option<Rc<SqliteHistory>>,
+    ui: &LaunchUi,
 ) {
-    if let Some(existing_window) = application.windows().into_iter().next() {
-        existing_window.present(); // Muestra y enfoca la ventana existente
+    // Una segunda activación no construye otra ventana: re-presenta la viva.
+    // Basta con `is_some()`: la ventana vive toda la sesión porque
+    // `connect_close_request` solo la oculta y nunca la destruye, de modo que
+    // un `Some` aquí no puede apuntar a un widget ya destruido.
+    if ui.window().is_some() {
+        ui.present_existing();
         return; // Salimos, no creamos una nueva ventana
     }
     let config;
@@ -196,14 +357,25 @@ fn activate(
     window.connect_is_active_notify(|win| {
         debug!("{:?}", win.is_active());
     });
+    let focus_loss_grace = ui.focus_loss_grace();
     window.connect_notify_local(Some("is-active"), move |win, _| {
         debug!("{:?}", win.is_active());
-        match win.is_active() {
-            true => (),
-            false => {
-                win.close();
-            }
+        if win.is_active() {
+            return;
         }
+        if focus_loss_grace.get() != 0 {
+            // El margen solo aplaza el auto-ocultado: una pérdida de foco real
+            // dentro de él se re-verifica al terminar, no se descarta.
+            debug!("Pérdida de foco dentro del margen de presentación: se re-verifica");
+            let win = win.clone();
+            gtk::glib::timeout_add_local_once(PRESENT_FOCUS_GRACE, move || {
+                if !win.is_active() {
+                    win.close();
+                }
+            });
+            return;
+        }
+        win.close();
     });
     // Crear el controller para detectar teclas
     let window_clone = window.clone();
@@ -219,6 +391,9 @@ fn activate(
     error_label.set_visible(false);
     error_label.set_wrap(true);
     error_label.set_xalign(0.0);
+    // La ventana ya existe: el estado transitorio pasa a ser accesible desde
+    // el camino de re-presentación.
+    ui.bind(&window, &entry, &error_label);
 
     // ListBox para mostrar sugerencias
     let scroll = ScrolledWindow::builder()
@@ -293,7 +468,7 @@ fn activate(
     let listbox_launch = listbox.clone();
     let window_launch = window.clone();
     let history_launch = history.clone();
-    let error_launch = error_label.clone();
+    let ui_launch = ui.clone();
     entry.connect_activate(move |_| {
         let idx = listbox_launch
             .selected_row()
@@ -303,16 +478,14 @@ fn activate(
             match launch(&item) {
                 Ok(()) => {
                     window_launch.set_visible(false);
-                    error_launch.set_text("");
-                    error_launch.set_visible(false);
+                    ui_launch.clear_error();
                     record_launch(history_launch.as_deref(), history_enabled, &item);
                 }
                 Err(err) => {
                     // La ventana NO se oculta: el dashboard permanece visible
                     // con el motivo del fallo para que el usuario lo vea.
                     tracing::error!("No se pudo lanzar la aplicación: {err}");
-                    error_launch.set_text(&err.to_string());
-                    error_launch.set_visible(true);
+                    ui_launch.show_error(err.to_string());
                 }
             }
         }
@@ -328,11 +501,10 @@ fn activate(
         let entry = entry.clone();
         let history = history.clone();
         let ranking_config = Rc::clone(&ranking_config);
-        let error = error_label.clone();
+        let ui_refresh = ui.clone();
         Rc::new(move || {
             // Reintentar la búsqueda descarta el error del intento anterior.
-            error.set_text("");
-            error.set_visible(false);
+            ui_refresh.clear_error();
             let text = entry.text().to_string();
             let history: Option<&dyn HistoryRepository> = history
                 .as_ref()
@@ -365,7 +537,22 @@ fn activate(
     // Render inicial: consulta vacía con el historial disponible.
     refresh();
 
+    // Mismo margen que en la re-presentación: si el compositor tarda en dar
+    // foco al mapear, la ventana no debe auto-ocultarse.
+    ui.arm_focus_loss_grace();
     window.present();
+    entry.grab_focus();
+}
+
+/// Estado de la instancia primaria, creado en `startup`.
+struct LaunchState {
+    /// Configuración compartida con el closure de activación (finders ya
+    /// inicializados por `startup`).
+    config: Arc<Mutex<Config>>,
+    /// Historial de uso; `None` si la base de datos no pudo abrirse.
+    history: Option<Rc<SqliteHistory>>,
+    /// Estado transitorio del dashboard (ventana, banner, `Entry`).
+    ui: LaunchUi,
 }
 
 fn main() -> io::Result<()> {
@@ -380,40 +567,54 @@ fn main() -> io::Result<()> {
         Err(err) => debug!("Failed to initialize GTK: {}", err),
     }
     let application = gtk::Application::new(Some(APP_ID), Default::default());
-    if let Some(existing_window) = application.windows().into_iter().next() {
-        existing_window.present(); // Muestra y enfoca la ventana existente
-        return Ok(()); // Salimos, no creamos una nueva ventana
-    }
-    let config = Arc::new(Mutex::new(
-        Config::load().expect("Can not load config file"),
-    ));
-    {
-        let mut config_guard = config.lock().unwrap(); // 🔓
-        for extension in config_guard.extensions.iter_mut() {
-            extension.finder.init();
-        }
-    } //🔓
-    let config_clone = Arc::clone(&config);
-    debug!("Config loaded");
-    let history = match SqliteHistory::open() {
-        Ok(store) => Some(Rc::new(store)),
-        Err(err) => {
-            tracing::warn!("No se pudo abrir el historial de uso, se continúa sin él: {err}");
-            None
-        }
-    };
-    let history_activate = history.clone();
-    application.connect_activate(move |app| {
-        debug!("Application activated");
-        activate(app, &config_clone, history_activate.clone());
-    });
-    application.connect_startup(|_app| {
+    // `startup` solo se emite en la instancia primaria de GApplication. Es el
+    // punto seguro para cargar la config, inicializar los finders y abrir la
+    // base de datos: una segunda invocación se registra como remota y no hace
+    // nada de este trabajo pesado.
+    let launcher: Rc<OnceCell<LaunchState>> = Rc::new(OnceCell::new());
+    let startup_launcher = Rc::clone(&launcher);
+    application.connect_startup(move |_app| {
         let provider = Css::load().expect("Can not load CSS file");
         gtk::style_context_add_provider_for_display(
             &Display::default().expect("Could not connect to a display."),
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
+        let config = Arc::new(Mutex::new(
+            Config::load().expect("Can not load config file"),
+        ));
+        {
+            let mut config_guard = config.lock().unwrap(); // 🔓
+            for extension in config_guard.extensions.iter_mut() {
+                extension.finder.init();
+            }
+        } //🔓
+        debug!("Config loaded");
+        let history = match SqliteHistory::open() {
+            Ok(store) => Some(Rc::new(store)),
+            Err(err) => {
+                tracing::warn!("No se pudo abrir el historial de uso, se continúa sin él: {err}");
+                None
+            }
+        };
+        let _ = startup_launcher.set(LaunchState {
+            config,
+            history,
+            ui: LaunchUi::new(),
+        });
+    });
+    application.connect_activate(move |app| {
+        debug!("Application activated");
+        // En la instancia primaria `startup` siempre precede a `activate`.
+        let Some(state) = launcher.get() else {
+            // Imposible salvo error de programación: sin `startup` no hay
+            // dashboard que construir. Se cierra la aplicación en vez de dejar
+            // un proceso vivo sin ventana.
+            tracing::error!("Activación sin estado inicializado: se cierra la aplicación");
+            app.quit();
+            return;
+        };
+        activate(app, &state.config, state.history.clone(), &state.ui);
     });
     application.connect_window_removed(|app, _window| {
         if app.windows().is_empty() {
