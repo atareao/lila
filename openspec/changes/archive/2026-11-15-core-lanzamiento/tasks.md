@@ -42,6 +42,6 @@
 ## 6. Configuración, documentación y verificación
 
 - [x] 6.1 Ampliar `Config` con los campos nuevos (`#[serde(default)]`).
-- [ ] 6.2 Escribir `docs/core-lanzamiento.md`.
-- [ ] 6.3 Actualizar `README.md`.
-- [ ] 6.4 `cargo fmt --check`, `cargo clippy -- -D warnings` y `cargo test` en verde.
+- [x] 6.2 Escribir `docs/core-lanzamiento.md`.
+- [x] 6.3 Actualizar `README.md`.
+- [x] 6.4 `cargo fmt --check`, `cargo clippy -- -D warnings` y `cargo test` en verde.
