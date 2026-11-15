@@ -1,5 +1,5 @@
 # Changelog
-## [unreleased]
+## [0.2.0] - 2026-11-15
 
 ### Bug Fixes
 
@@ -27,6 +27,7 @@
 - *(openspec)* Propuesta del atajo global por D-Bus (follow-up 5.3)
 - *(openspec)* Archivar atajo-global-dbus y cerrar PLAN-002
 - *(handoff)* Relevo a sesión nueva para deuda técnica (#16)
+- *(handoff)* Relevo con el tooling de release/CI montado
 
 ### Features
 
@@ -48,6 +49,9 @@
 - *(openspec)* Incorpora flujo SDD, plan del core y convenciones del proyecto
 - Añadir cliff.toml para changelog con git-cliff
 - Añadir .vampus.yml para versionado (vampus)
+- Workflows de CI y release + GIT_FLOW.md y CHANGELOG
+- Contenedor Arch (GTK>=4.17) y release por PR
+- Instalar solo el paquete rust (incluye rustfmt/clippy)
 
 ### Refactor
 
