@@ -670,7 +670,7 @@ fn main() -> io::Result<()> {
     let launcher: Rc<OnceCell<LaunchState>> = Rc::new(OnceCell::new());
     let startup_launcher = Rc::clone(&launcher);
     application.connect_startup(move |app| {
-        let provider = Css::load().expect("Can not load CSS file");
+        let provider = Css::load();
         gtk::style_context_add_provider_for_display(
             &Display::default().expect("Could not connect to a display."),
             &provider,
