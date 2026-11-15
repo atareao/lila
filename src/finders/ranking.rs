@@ -18,7 +18,7 @@ use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
 use crate::history::{HistoryRepository, Usage, frequency_score, recency_score};
-use crate::models::{Config, Item};
+use crate::models::{Config, IdCache, Item};
 
 use super::filter_items;
 
@@ -37,10 +37,15 @@ const NO_USAGE: Usage = Usage {
 /// vacía, el término difuso es `0.0` para todos y ordenan frecuencia y recencia.
 /// El resultado se recorta a `cfg.max_results` en todas las rutas.
 ///
+/// `ids` memoiza el id canónico de cada ítem: se consulta una vez por ítem y
+/// pulsación en lugar de canonicalizar la ruta cada vez (ver [`IdCache`]). El
+/// historial completo se carga una sola vez por búsqueda, nunca por ítem.
+///
 /// Si `cfg.history_enabled` es `false` o no hay repositorio de historial, el
 /// orden es el de [`filter_items`] (solo coincidencia difusa).
 pub fn rank_items(
     items: &[Item],
+    ids: &IdCache,
     query: &str,
     history: Option<&dyn HistoryRepository>,
     cfg: &Config,
@@ -79,7 +84,7 @@ pub fn rank_items(
             } else {
                 matcher.fuzzy_match(item.name(), query)? as f64
             };
-            let usage = usage_by_id.get(&item.id()).unwrap_or(&NO_USAGE);
+            let usage = usage_by_id.get(&ids.id(item)).unwrap_or(&NO_USAGE);
             let score = cfg.fuzzy_weight * fuzzy
                 + cfg.frequency_weight * frequency_score(usage)
                 + cfg.recency_weight * recency_score(usage, now_millis);
@@ -97,12 +102,14 @@ pub fn rank_items(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::{HistoryRepository, Result as HistoryResult, Usage};
+    use crate::history::{HistoryError, HistoryRepository, Result as HistoryResult, Usage};
     use crate::models::Item;
     use applications::App;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
+    use std::fs;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     /// Instante fijo para que los tests sean deterministas.
     const NOW: i64 = 1_700_000_000_000;
@@ -177,6 +184,55 @@ mod tests {
         items.iter().map(Item::name).collect()
     }
 
+    /// Repositorio que delega en [`MemoryHistory`] y cuenta las cargas completas.
+    #[derive(Default)]
+    struct CountingHistory {
+        inner: MemoryHistory,
+        load_all_calls: Cell<usize>,
+    }
+
+    impl HistoryRepository for CountingHistory {
+        fn record(&self, item_id: &str, now_millis: i64) -> HistoryResult<()> {
+            self.inner.record(item_id, now_millis)
+        }
+
+        fn usage(&self, item_id: &str) -> HistoryResult<Option<Usage>> {
+            self.inner.usage(item_id)
+        }
+
+        fn load_all(&self) -> HistoryResult<Vec<(String, Usage)>> {
+            self.load_all_calls.set(self.load_all_calls.get() + 1);
+            self.inner.load_all()
+        }
+    }
+
+    /// Repositorio cuyo `load_all` siempre falla, para cubrir la rama de error.
+    struct FailingHistory;
+
+    impl HistoryRepository for FailingHistory {
+        fn record(&self, _item_id: &str, _now_millis: i64) -> HistoryResult<()> {
+            Ok(())
+        }
+
+        fn usage(&self, _item_id: &str) -> HistoryResult<Option<Usage>> {
+            Ok(None)
+        }
+
+        fn load_all(&self) -> HistoryResult<Vec<(String, Usage)>> {
+            Err(HistoryError::LockPoisoned)
+        }
+    }
+
+    /// `App` cuyo `.desktop` es un fichero real dentro de `dir`.
+    fn app_in(dir: &std::path::Path, file: &str, name: &str) -> Item {
+        Item::App(App {
+            name: name.to_string(),
+            icon_path: None,
+            app_path_exe: None,
+            app_desktop_path: dir.join(file),
+        })
+    }
+
     /// [TDD-RED-B2-05] La frecuencia desempata dos coincidencias idénticas.
     #[test]
     fn frequency_breaks_ties_between_equally_matching_items() {
@@ -184,7 +240,14 @@ mod tests {
         let used = items[1].id();
         let history = MemoryHistory::with(&[(used.as_str(), usage(9, NOW))]);
 
-        let ranked = rank_items(&items, "fire", Some(&history), &Config::default(), NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "fire",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
 
         assert_eq!(ranked[0].id(), used);
     }
@@ -196,7 +259,14 @@ mod tests {
         let recent = items[1].id();
         let history = MemoryHistory::with(&[(recent.as_str(), usage(1, NOW))]);
 
-        let ranked = rank_items(&items, "", Some(&history), &Config::default(), NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
 
         assert_eq!(ranked[0].id(), recent);
     }
@@ -216,7 +286,14 @@ mod tests {
         let weak = matcher.fuzzy_match("Watch", "ch").expect("Watch coincide");
         assert!(strong > weak, "fixture: {strong} debería superar a {weak}");
 
-        let ranked = rank_items(&items, "ch", Some(&history), &Config::default(), NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "ch",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
 
         assert_eq!(ranked[0].name(), "Cheese");
     }
@@ -232,7 +309,14 @@ mod tests {
             ..Config::default()
         };
 
-        let ranked = rank_items(&items, "app", Some(&MemoryHistory::default()), &config, NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "app",
+            Some(&MemoryHistory::default()),
+            &config,
+            NOW,
+        );
 
         assert_eq!(ranked.len(), 2);
     }
@@ -248,7 +332,14 @@ mod tests {
             ..Config::default()
         };
 
-        let ranked = rank_items(&items, "", Some(&history), &config, NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "",
+            Some(&history),
+            &config,
+            NOW,
+        );
 
         assert_eq!(names(&ranked), names(&filter_items(&items, "")));
         assert_eq!(names(&ranked), vec!["Firefox", "Gimp"]);
@@ -266,7 +357,14 @@ mod tests {
             ..Config::default()
         };
 
-        let ranked = rank_items(&items, "app", Some(&MemoryHistory::default()), &config, NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "app",
+            Some(&MemoryHistory::default()),
+            &config,
+            NOW,
+        );
 
         assert_eq!(ranked.len(), 2);
     }
@@ -276,7 +374,14 @@ mod tests {
     fn missing_history_falls_back_to_fuzzy_ranking() {
         let items = vec![app_at("a", "Firefox"), app_at("b", "Gimp")];
 
-        let ranked = rank_items(&items, "fir", None, &Config::default(), NOW);
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "fir",
+            None,
+            &Config::default(),
+            NOW,
+        );
 
         assert_eq!(names(&ranked), vec!["Firefox"]);
     }
@@ -293,15 +398,167 @@ mod tests {
             recency_weight: 0.0,
             ..Config::default()
         };
-        let by_fuzzy = rank_items(&items, "term", Some(&history), &fuzzy_only, NOW);
+        let by_fuzzy = rank_items(
+            &items,
+            &IdCache::default(),
+            "term",
+            Some(&history),
+            &fuzzy_only,
+            NOW,
+        );
 
         let usage_first = Config {
             fuzzy_weight: 0.0,
             ..Config::default()
         };
-        let by_usage = rank_items(&items, "term", Some(&history), &usage_first, NOW);
+        let by_usage = rank_items(
+            &items,
+            &IdCache::default(),
+            "term",
+            Some(&history),
+            &usage_first,
+            NOW,
+        );
 
         assert_eq!(by_fuzzy[0].name(), "Terminal");
         assert_eq!(by_usage[0].name(), "Terminal2");
+    }
+
+    /// [TDD-RED-CACHE-01] El historial se carga una sola vez por búsqueda,
+    /// independientemente del número de ítems a puntuar.
+    #[test]
+    fn loads_history_once_per_search() {
+        let items: Vec<Item> = (0..5)
+            .map(|index| app_at("m", &format!("App{index}")))
+            .collect();
+        let history = CountingHistory::default();
+
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "app",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
+
+        assert_eq!(ranked.len(), 5);
+        assert_eq!(history.load_all_calls.get(), 1);
+    }
+
+    /// [TDD-RED-CACHE-02] Con consulta vacía la frecuencia ordena usos igual de recientes.
+    #[test]
+    fn empty_query_ranks_the_most_launched_first() {
+        let items = vec![app_at("a", "Alpha"), app_at("b", "Beta")];
+        let often = items[1].id();
+        let seldom = items[0].id();
+        let history = MemoryHistory::with(&[
+            (often.as_str(), usage(9, NOW)),
+            (seldom.as_str(), usage(1, NOW)),
+        ]);
+
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
+
+        assert_eq!(ranked[0].id(), often);
+    }
+
+    /// [TDD-RED-CACHE-03] Con consulta vacía y misma frecuencia gana el uso
+    /// más reciente: un retraso de `HALF_LIFE_DAYS` días vale media recencia.
+    #[test]
+    fn empty_query_prefers_the_most_recent_usage_at_equal_frequency() {
+        let items = vec![app_at("a", "Alpha"), app_at("b", "Beta")];
+        let fresh = items[0].id();
+        let stale = items[1].id();
+        let history = MemoryHistory::with(&[
+            (fresh.as_str(), usage(1, NOW)),
+            (stale.as_str(), usage(1, NOW - 14 * DAY_MILLIS)),
+        ]);
+
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
+
+        assert_eq!(ranked[0].id(), fresh);
+    }
+
+    /// [TDD-RED-CACHE-04] El id canónico se resuelve una vez por ruta y se
+    /// reutiliza entre búsquedas: retirar el fichero no cambia la clave del
+    /// historial en la siguiente pulsación.
+    #[test]
+    fn canonical_id_is_memoized_across_searches() {
+        let dir = TempDir::new().expect("TempDir::new()");
+        let plain = dir.path().join("plain.desktop");
+        let target = dir.path().join("target.desktop");
+        fs::write(&plain, "[Desktop Entry]\nName=Plain\n").expect("write");
+        fs::write(&target, "[Desktop Entry]\nName=Linked\n").expect("write");
+        // El enlace hace que el path literal y el canónico difieran.
+        let link = dir.path().join("linked.desktop");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+        let items = vec![
+            app_in(dir.path(), "plain.desktop", "Plain"),
+            app_in(dir.path(), "linked.desktop", "Linked"),
+        ];
+        let linked_id = items[1].id();
+        let history = MemoryHistory::with(&[(linked_id.as_str(), usage(9, NOW))]);
+        let cache = IdCache::default();
+
+        let before = rank_items(&items, &cache, "", Some(&history), &Config::default(), NOW);
+        assert_eq!(names(&before), vec!["Linked", "Plain"]);
+
+        // El destino desaparece y el enlace queda colgado: sin caché `id()` cae
+        // al path literal, el historial ya no casaría y el orden se invertiría.
+        fs::remove_file(&target).expect("remove");
+        assert_ne!(
+            items[1].id(),
+            linked_id,
+            "fixture: el id sin caché deja de ser canónico"
+        );
+
+        let after = rank_items(&items, &cache, "", Some(&history), &Config::default(), NOW);
+        assert_eq!(names(&after), vec!["Linked", "Plain"]);
+    }
+
+    /// [TDD-RED-B2-12] Si `load_all` falla se cae al orden difuso y el límite
+    /// de resultados se respeta también en esa rama de error.
+    #[test]
+    fn history_load_error_falls_back_to_fuzzy_ranking_and_caps_results() {
+        let items: Vec<Item> = (0..5)
+            .map(|index| app_at("m", &format!("App{index}")))
+            .collect();
+        let config = Config {
+            max_results: 2,
+            ..Config::default()
+        };
+
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            "app",
+            Some(&FailingHistory),
+            &config,
+            NOW,
+        );
+
+        let fuzzy_order = filter_items(&items, "app");
+        let expected: Vec<&str> = names(&fuzzy_order)
+            .into_iter()
+            .take(config.max_results)
+            .collect();
+
+        assert_eq!(names(&ranked), expected);
+        assert_eq!(ranked.len(), config.max_results);
     }
 }

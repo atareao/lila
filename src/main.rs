@@ -20,7 +20,7 @@ use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use history::{HistoryRepository, SqliteHistory};
-use models::{Config, Css, Item};
+use models::{Config, Css, IdCache, Item};
 use std::cell::{Cell, OnceCell, RefCell};
 use std::io;
 use std::rc::Rc;
@@ -307,6 +307,10 @@ fn activate(
         .map(|e| e.finder.search(""))
         .unwrap_or_default();
     let apps = Rc::new(apps);
+    // Caché de ids canónicos: `Item::id()` canonicaliza su `.desktop` (E/S) y el
+    // ranking lo consulta para todos los ítems en cada pulsación. Vive tanto
+    // como la ventana.
+    let id_cache = Rc::new(IdCache::default());
     let current: Rc<RefCell<Vec<Item>>> = Rc::new(RefCell::new(Vec::new()));
     // Las señales de GTK exigen closures `'static`: se clona la config y el
     // historial una sola vez y se reparten entre las señales.
@@ -500,6 +504,7 @@ fn activate(
         let listbox = listbox.clone();
         let entry = entry.clone();
         let history = history.clone();
+        let ids = Rc::clone(&id_cache);
         let ranking_config = Rc::clone(&ranking_config);
         let ui_refresh = ui.clone();
         Rc::new(move || {
@@ -510,7 +515,7 @@ fn activate(
                 .as_ref()
                 .map(|store| store.as_ref() as &dyn HistoryRepository);
             let now_millis = now_millis();
-            let results = rank_items(&apps, &text, history, &ranking_config, now_millis);
+            let results = rank_items(&apps, &ids, &text, history, &ranking_config, now_millis);
             listbox.remove_all();
             for item in &results {
                 let row = ui::row::ResultRow::from_item(item);
@@ -615,13 +620,6 @@ fn main() -> io::Result<()> {
             return;
         };
         activate(app, &state.config, state.history.clone(), &state.ui);
-    });
-    application.connect_window_removed(|app, _window| {
-        if app.windows().is_empty() {
-            // Si quieres que la aplicación se cierre al cerrar la última ventana visible,
-            // y has usado `app.hold()`, aquí necesitarías llamar a `app.release()` para contrarrestar el `hold`.
-            // Si NO usas `app.hold()`, el comportamiento por defecto de GTK es que la aplicación termine cuando no haya más ventanas.
-        }
     });
     debug!("Startup completed");
     application.run();

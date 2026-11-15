@@ -1,7 +1,10 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
 use applications::App;
 use gio::DesktopAppInfo;
 use gio::prelude::AppInfoExt;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -17,16 +20,21 @@ impl Item {
         }
     }
 
+    /// Ruta del fichero `.desktop` asociado al ítem.
+    ///
+    /// Es la base de [`Item::id`] y la clave con la que [`IdCache`] memoriza la
+    /// canonicalización.
+    pub(crate) fn desktop_path(&self) -> &Path {
+        match self {
+            Item::App(app) => &app.app_desktop_path,
+        }
+    }
+
     /// ID estable de la aplicación: ruta canónica del fichero `.desktop`.
     /// Si la canonicalización falla, cae al path tal cual como String.
     pub fn id(&self) -> String {
-        match self {
-            Item::App(app) => app
-                .app_desktop_path
-                .canonicalize()
-                .map(|canonical| canonical.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| app.app_desktop_path.to_string_lossy().into_owned()),
-        }
+        let path = self.desktop_path();
+        canonical_path(path).unwrap_or_else(|| path.to_string_lossy().into_owned())
     }
 
     /// Ruta del icono de la aplicación (si existe)
@@ -101,6 +109,53 @@ fn split_desktop_list(value: &str) -> Vec<String> {
         .collect()
 }
 
+/// Canonicaliza `path` como id estable, o `None` si no se puede resolver.
+///
+/// Es la única canonicalización del modelo: [`Item::id`] y [`IdCache`] la
+/// comparten para no divergir en el formato del id.
+fn canonical_path(path: &Path) -> Option<String> {
+    path.canonicalize()
+        .ok()
+        .map(|canonical| canonical.to_string_lossy().into_owned())
+}
+
+/// Caché de ids canónicos de `.desktop` por ruta.
+///
+/// [`Item::id`] canonicaliza su ruta en cada llamada, y eso es una syscall de
+/// E/S: el ranking consulta el id de *todos* los ítems en *cada* pulsación, así
+/// que sin caché la misma ruta se canonicalizaría decenas de veces por
+/// búsqueda. Esta caché resuelve cada ruta una sola vez por sesión y reutiliza
+/// el resultado entre búsquedas.
+///
+/// Solo memoriza resoluciones correctas: si la canonicalización falla, cada
+/// consulta lo reintenta y aplica el respaldo de [`Item::id`] (el path
+/// literal), de modo que un fichero que aparezca más tarde se resuelve igual
+/// que sin caché.
+#[derive(Debug, Default)]
+pub struct IdCache {
+    canonical: RefCell<HashMap<PathBuf, String>>,
+}
+
+impl IdCache {
+    /// Id estable de `item`, reutilizando la canonicalización ya resuelta.
+    ///
+    /// Equivale a [`Item::id`] pero sin repetir la E/S cuando la ruta ya se
+    /// resolvió antes.
+    pub fn id(&self, item: &Item) -> String {
+        let path = item.desktop_path();
+        if let Some(cached) = self.canonical.borrow().get(path) {
+            return cached.clone();
+        }
+        let Some(canonical) = canonical_path(path) else {
+            return path.to_string_lossy().into_owned();
+        };
+        self.canonical
+            .borrow_mut()
+            .insert(path.to_path_buf(), canonical.clone());
+        canonical
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +169,16 @@ mod tests {
     /// `DesktopAppInfo::from_filename()` devuelve `None`. Por eso las
     /// fixtures apuntan a un ejecutable real del sistema.
     const EXEC_BINARY: &str = "/usr/bin/env";
+
+    /// `Item::App` con el nombre y la ruta de `.desktop` indicados.
+    fn item_at(desktop_path: &Path, name: &str) -> Item {
+        Item::App(App {
+            name: name.to_string(),
+            icon_path: None,
+            app_path_exe: None,
+            app_desktop_path: desktop_path.to_path_buf(),
+        })
+    }
 
     /// [TDD-RED-01] Un `App` con un `.desktop` real devuelve un `id()` canónico
     #[test]
@@ -234,6 +299,67 @@ Exec={EXEC_BINARY}
             item.subtitle(),
             Some(String::from("Subtitle from GenericName"))
         );
+    }
+
+    /// [TDD-RED-CACHE-05] `IdCache` devuelve el mismo id que `Item::id()`
+    #[test]
+    fn id_cache_matches_item_id() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop_path = tmp.path().join("cached.desktop");
+        fs::write(&desktop_path, "[Desktop Entry]\nName=Cached\n").expect("write");
+        let item = item_at(&desktop_path, "Cached");
+
+        let cache = IdCache::default();
+
+        assert_eq!(cache.id(&item), item.id());
+        assert_eq!(cache.id(&item), item.id());
+    }
+
+    /// [TDD-RED-CACHE-06] `IdCache` memoriza cada ruta: una vez resuelta, el id
+    /// no vuelve a canonicalizarse aunque el fichero desaparezca
+    #[test]
+    fn id_cache_memoizes_the_canonical_path() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let target = tmp.path().join("memoized.desktop");
+        fs::write(&target, "[Desktop Entry]\nName=Memoized\n").expect("write");
+        // El enlace hace que el path literal y el canónico difieran.
+        let link = tmp.path().join("linked.desktop");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        let item = item_at(&link, "Memoized");
+        let canonical = target
+            .canonicalize()
+            .expect("canonicalize")
+            .to_string_lossy()
+            .into_owned();
+
+        let cache = IdCache::default();
+        assert_eq!(cache.id(&item), canonical);
+
+        fs::remove_file(&target).expect("remove");
+        assert_ne!(item.id(), canonical, "fixture: el enlace ya está colgado");
+
+        assert_eq!(cache.id(&item), canonical);
+    }
+
+    /// [TDD-RED-CACHE-07] Un fallo de canonicalización no se memoriza: si el
+    /// fichero aparece después, la siguiente consulta ya lo resuelve
+    #[test]
+    fn id_cache_retries_failed_canonicalization() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop_path = tmp.path().join("late.desktop");
+        let item = item_at(&desktop_path, "Late");
+
+        let cache = IdCache::default();
+        assert_eq!(cache.id(&item), desktop_path.to_string_lossy());
+
+        fs::write(&desktop_path, "[Desktop Entry]\nName=Late\n").expect("write");
+        let canonical = desktop_path
+            .canonicalize()
+            .expect("canonicalize")
+            .to_string_lossy()
+            .into_owned();
+
+        assert_eq!(cache.id(&item), canonical);
     }
 
     /// [TDD-RED-05] `keywords()` y `categories()` devuelven los vectores esperados
