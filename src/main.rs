@@ -37,6 +37,46 @@ use utils::*;
 /// este margen la pérdida se aplaza y se re-verifica al terminar.
 const PRESENT_FOCUS_GRACE: Duration = Duration::from_millis(250);
 
+/// Acción que el compositor dispara sobre el dashboard ya en ejecución.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShortcutAction {
+    /// Alterna la visibilidad: presenta si está oculto, oculta si está visible.
+    Toggle,
+    /// Presenta siempre, conservando el texto si ya estaba visible.
+    Present,
+}
+
+/// Efecto ya decidido de una acción sobre el dashboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolution {
+    /// Re-presenta la ventana; con `preserve_text` conserva el texto del `Entry`.
+    Present { preserve_text: bool },
+    /// Oculta la ventana sin terminar el proceso.
+    Hide,
+}
+
+/// Acciones exportadas por el bus de sesión, en el orden de registro.
+const SHORTCUT_ACTIONS: [(&str, ShortcutAction); 2] = [
+    (TOGGLE_ACTION, ShortcutAction::Toggle),
+    (PRESENT_ACTION, ShortcutAction::Present),
+];
+
+/// Traduce `(acción, visibilidad)` al efecto sobre el dashboard.
+///
+/// Lógica pura, sin GTK ni display: la acción solo aplica el resultado sobre los
+/// widgets, de modo que la decisión se puede cubrir con tests unitarios.
+fn next_action(visible: bool, action: ShortcutAction) -> Resolution {
+    match (action, visible) {
+        (ShortcutAction::Toggle, true) => Resolution::Hide,
+        (ShortcutAction::Toggle, false) | (ShortcutAction::Present, false) => Resolution::Present {
+            preserve_text: false,
+        },
+        (ShortcutAction::Present, true) => Resolution::Present {
+            preserve_text: true,
+        },
+    }
+}
+
 // https://github.com/wmww/gtk-layer-shell/blob/master/examples/simple-example.c
 /// Traduce una tecla de navegación de GTK a un movimiento de la selección.
 ///
@@ -255,16 +295,42 @@ impl LaunchUi {
 
     /// Re-presenta la ventana existente, con foco y estado transitorio limpio.
     ///
+    /// Si la ventana ya estaba visible se conserva lo que el usuario tenía
+    /// escrito; solo se parte de cero al re-presentar una ventana oculta.
+    fn present_existing(&self) {
+        self.present_window(self.is_window_visible());
+    }
+
+    /// Aplica una acción del compositor al dashboard vivo.
+    ///
+    /// La decisión vive en [`next_action`]; aquí solo se ejecuta sobre los
+    /// widgets, reutilizando la misma ruta de re-presentación que la invocación
+    /// por binario (foco, margen y limpieza idénticos).
+    fn dispatch(&self, action: ShortcutAction) {
+        match next_action(self.is_window_visible(), action) {
+            Resolution::Present { preserve_text } => self.present_window(preserve_text),
+            Resolution::Hide => self.hide_existing(),
+        }
+    }
+
+    /// `true` si la ventana existe y su flag `visible` está activo.
+    ///
+    /// No implica que ya esté mapeada: el compositor puede tardar en mapear la
+    /// superficie, y por eso la presentación arma el margen de foco. Devuelve
+    /// `false` mientras la ventana no se haya construido.
+    fn is_window_visible(&self) -> bool {
+        self.window().is_some_and(|window| window.is_visible())
+    }
+
+    /// Re-presenta la ventana con foco; `preserve_text` conserva el `Entry`.
+    ///
     /// `present` va antes que la limpieza: así el refresco que dispara vaciar
     /// el `Entry` corre con la ventana ya mapeada y el scroll se recoloca de
-    /// forma determinista. Si la ventana ya estaba visible se conserva lo que
-    /// el usuario tenía escrito; solo se parte de cero al re-presentar una
-    /// ventana oculta.
-    fn present_existing(&self) {
+    /// forma determinista.
+    fn present_window(&self, preserve_text: bool) {
         let Some(window) = self.window() else {
             return;
         };
-        let was_visible = window.is_visible();
         // El margen se arma antes de presentar para cubrir también el `map`.
         self.arm_focus_loss_grace();
         window.present(); // Muestra y enfoca la ventana existente
@@ -272,11 +338,23 @@ impl LaunchUi {
         if let Some(entry) = &entry {
             entry.grab_focus();
         }
-        if !was_visible {
+        if !preserve_text {
             self.clear_error();
             if let Some(entry) = &entry {
                 entry.set_text("");
             }
+        }
+    }
+
+    /// Oculta la ventana sin terminar el proceso.
+    ///
+    /// Usa la misma ruta que el auto-ocultado por pérdida de foco
+    /// (`connect_close_request` solo la esconde), así que el proceso queda vivo y
+    /// listo para la siguiente invocación. No re-verifica el margen de foco: el
+    /// margen solo aplica a la presentación.
+    fn hide_existing(&self) {
+        if let Some(window) = self.window() {
+            window.close();
         }
     }
 }
@@ -578,7 +656,7 @@ fn main() -> io::Result<()> {
     // nada de este trabajo pesado.
     let launcher: Rc<OnceCell<LaunchState>> = Rc::new(OnceCell::new());
     let startup_launcher = Rc::clone(&launcher);
-    application.connect_startup(move |_app| {
+    application.connect_startup(move |app| {
         let provider = Css::load().expect("Can not load CSS file");
         gtk::style_context_add_provider_for_display(
             &Display::default().expect("Could not connect to a display."),
@@ -602,11 +680,23 @@ fn main() -> io::Result<()> {
                 None
             }
         };
+        let ui = LaunchUi::new();
         let _ = startup_launcher.set(LaunchState {
             config,
             history,
-            ui: LaunchUi::new(),
+            ui: ui.clone(),
         });
+        // Las acciones se registran una sola vez, en la instancia primaria.
+        // `GApplication` exporta el action map por `org.gtk.Actions` y
+        // `org.freedesktop.Application` en el object path derivado de `APP_ID`
+        // (`/es/atareao/lila`), de modo que el compositor puede invocarlas sin
+        // arrancar un proceso nuevo.
+        for (name, action) in SHORTCUT_ACTIONS {
+            let ui_for_action = ui.clone();
+            let simple_action = gio::SimpleAction::new(name, None);
+            simple_action.connect_activate(move |_, _| ui_for_action.dispatch(action));
+            app.add_action(&simple_action);
+        }
     });
     application.connect_activate(move |app| {
         debug!("Application activated");
@@ -625,4 +715,50 @@ fn main() -> io::Result<()> {
     application.run();
     debug!("Application exited");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_actions_should_export_toggle_and_present_names() {
+        let names: Vec<&str> = SHORTCUT_ACTIONS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(names, ["toggle", "present"]);
+    }
+
+    #[test]
+    fn toggle_should_present_without_text_when_dashboard_hidden() {
+        assert_eq!(
+            next_action(false, ShortcutAction::Toggle),
+            Resolution::Present {
+                preserve_text: false
+            }
+        );
+    }
+
+    #[test]
+    fn toggle_should_hide_when_dashboard_visible() {
+        assert_eq!(next_action(true, ShortcutAction::Toggle), Resolution::Hide);
+    }
+
+    #[test]
+    fn present_should_preserve_text_when_dashboard_visible() {
+        assert_eq!(
+            next_action(true, ShortcutAction::Present),
+            Resolution::Present {
+                preserve_text: true
+            }
+        );
+    }
+
+    #[test]
+    fn present_should_present_without_text_when_dashboard_hidden() {
+        assert_eq!(
+            next_action(false, ShortcutAction::Present),
+            Resolution::Present {
+                preserve_text: false
+            }
+        );
+    }
 }

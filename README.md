@@ -24,7 +24,7 @@ cargo fmt --check
 
 ## Uso
 
-- **Atajo global:** enlaza una tecla del compositor (p. ej. en Sway/Hyprland) a la ejecución del binario `lila`. La **acción D-Bus** dedicada para el atajo global quedó como **follow-up no implementado**; hoy basta con invocar el binario.
+- **Atajo global:** enlaza una tecla del compositor (p. ej. en Sway/Hyprland/niri) a la **acción D-Bus** `toggle`/`present` del proceso en marcha, o al binario `lila` como respaldo. Ver [Atajo global (D-Bus)](#atajo-global-dbus).
 - **Instancia única:** LiLa es singleton; una segunda invocación **re-presenta** la ventana existente (misma ventana, con foco) en lugar de abrir otra.
 - **Búsqueda:** filtrado fuzzy al teclear, con **ranking combinado** por coincidencia difusa + frecuencia de uso + recencia. Al lanzar con Enter se registra en el historial.
 
@@ -39,6 +39,16 @@ Ficheros de runtime en el directorio XDG del proyecto (`~/.config/lila/`):
 ## Instalación del lanzador
 
 Instala el `.desktop` de LiLa en `~/.local/share/applications/` (o `/usr/share/applications/`) para poder invocarlo desde el menú/atajo del escritorio.
+
+## Atajo global (D-Bus)
+
+LiLa expone acciones `toggle`/`present` sobre el bus de sesión, de modo que una tecla del compositor puede mostrar u ocultar el dashboard ya en marcha **sin arrancar un proceso nuevo**. Con LiLa en ejecución:
+
+```bash
+gdbus call --session --dest es.atareao.lila --object-path /es/atareao/lila --method org.gtk.Actions.Activate toggle [] {}
+```
+
+Usa `present` para re-presentar conservando el texto. Detalle (semántica, bindings por compositor y decisiones): [`docs/atajo-global-dbus.md`](docs/atajo-global-dbus.md).
 
 ## Documentación
 
