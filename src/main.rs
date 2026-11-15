@@ -37,6 +37,12 @@ use utils::*;
 /// este margen la pérdida se aplaza y se re-verifica al terminar.
 const PRESENT_FOCUS_GRACE: Duration = Duration::from_millis(250);
 
+/// Código de salida cuando `config.yml` existe pero es ilegible o inválido.
+///
+/// Es un error del usuario, no un fallo interno: se sale de forma controlada con
+/// un mensaje claro en lugar de arrancar con una configuración a medias.
+const EXIT_CONFIG_ERROR: i32 = 2;
+
 /// Acción que el compositor dispara sobre el dashboard ya en ejecución.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShortcutAction {
@@ -656,6 +662,18 @@ struct LaunchState {
     ui: LaunchUi,
 }
 
+/// Sale de la aplicación avisando de un `config.yml` ilegible o inválido.
+///
+/// Un fichero de configuración roto es un error del usuario: se registra, se
+/// imprime un mensaje claro y el proceso termina con [`EXIT_CONFIG_ERROR`], sin
+/// `panic` y sin tocar el fichero.
+fn exit_config_error(error: &models::ConfigError) -> ! {
+    tracing::error!("No se pudo cargar la configuración: {error}");
+    eprintln!("No se pudo cargar la configuración: {error}");
+    eprintln!("Corrige el YAML de tu fichero de configuración o muévelo para que se regenere.");
+    std::process::exit(EXIT_CONFIG_ERROR);
+}
+
 fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -681,9 +699,13 @@ fn main() -> io::Result<()> {
             &provider,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
-        let config = Arc::new(Mutex::new(
-            Config::load().expect("Can not load config file"),
-        ));
+        // A diferencia del CSS, un `config.yml` ilegible o inválido sí es un
+        // error del usuario: se sale de forma controlada (código != 0) con un
+        // mensaje claro, sin `panic` y sin tocar su fichero.
+        let config = match Config::load() {
+            Ok(config) => Arc::new(Mutex::new(config)),
+            Err(error) => exit_config_error(&error),
+        };
         {
             let mut config_guard = config.lock().unwrap(); // 🔓
             for extension in config_guard.extensions.iter_mut() {
