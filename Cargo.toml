@@ -13,8 +13,12 @@ gio = "0.20.11"
 glib = "0.20.12"
 gtk = { version = "0.9.6", package = "gtk4", features = ["v4_18"] }
 gtk4-layer-shell = "0.5.0"
+rusqlite = { version = "0.42.0", features = ["bundled"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["tracing", "env-filter", "local-time", "fmt"] }
 uuid = { version = "1.17.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.19"
