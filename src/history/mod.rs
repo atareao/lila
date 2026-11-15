@@ -11,6 +11,10 @@
 //! la última vez. Sobre esos datos se calcula una puntuación que combina
 //! frecuencia y recencia, que el ranking usará más adelante.
 
+mod cache;
+
+pub use cache::CachedHistory;
+
 use std::fmt;
 use std::path::Path;
 use std::sync::Mutex;
@@ -105,6 +109,11 @@ pub type Result<T> = std::result::Result<T, HistoryError>;
 /// registrar lanzamientos y consultar puntuaciones.
 pub trait HistoryRepository {
     /// Registra un lanzamiento del ítem `item_id` en el instante `now_millis`.
+    ///
+    /// Garantía de la que depende [`CachedHistory`]: un `Err` significa que no
+    /// se ha registrado nada; la implementación debe ser atómica respecto a
+    /// este contrato, porque `CachedHistory` solo invalida su memorización
+    /// cuando `record` devuelve `Ok`.
     fn record(&self, item_id: &str, now_millis: i64) -> Result<()>;
 
     /// Devuelve el uso acumulado de `item_id`, o `None` si nunca se lanzó.

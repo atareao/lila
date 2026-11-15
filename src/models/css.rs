@@ -2,36 +2,101 @@ use super::super::utils::*;
 use directories::ProjectDirs;
 use gtk::CssProvider;
 use std::fs;
-use tracing::{debug, error};
+use std::path::Path;
+use tracing::{debug, warn};
+
+/// Nombre del fichero de estilos dentro del directorio de configuración.
+const STYLESHEET_FILE: &str = "style.css";
 
 pub struct Css {}
 
-impl Css {
-    pub fn load() -> Result<CssProvider, Box<dyn std::error::Error>> {
-        let provider = CssProvider::new();
-        if let Some(proj_dirs) = ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_APPLICATION)
-        {
-            let mut config_dir = proj_dirs.config_dir().to_path_buf();
-            debug!("config dir: {:?}", config_dir);
-            if !config_dir.exists() {
-                std::fs::create_dir_all(&config_dir)?;
-            }
-            config_dir.push("style.css");
-            if config_dir.exists() {
-                provider.load_from_path(config_dir);
-                Ok(provider)
-            } else {
-                match fs::write(config_dir, Css::default()) {
-                    Ok(_) => debug!("Saved"),
-                    Err(e) => error!("Error al escribir el archivo: {}", e),
-                }
-                provider.load_from_string(&Css::default());
-                Ok(provider)
-            }
-        } else {
-            provider.load_from_string(&Css::default());
-            Ok(provider)
+/// Resultado de resolver la hoja de estilos: el CSS a aplicar y los avisos
+/// (problemas degradados) que deben registrarse.
+#[derive(Debug)]
+pub(crate) struct ResolvedStylesheet {
+    pub css: String,
+    pub warnings: Vec<String>,
+}
+
+/// Resuelve el CSS a aplicar desde `config_dir`. **Nunca falla**: ante
+/// cualquier problema devuelve el CSS por defecto y acumula un aviso.
+///
+/// Política de resolución, en orden de precedencia:
+/// 1. Sin directorio de configuración, solo cabe el CSS por defecto.
+/// 2. Si `<config_dir>/style.css` es legible, manda el fichero del usuario: se
+///    usa su contenido y no se escribe nada (el fichero es del usuario).
+/// 3. Si existe pero no es legible, se usa el CSS por defecto en memoria y se
+///    avisa: nunca se sobrescribe ni se borra lo que el usuario tenga ahí. La
+///    existencia se comprueba con `symlink_metadata`, de modo que un enlace
+///    simbólico roto también cuenta como «existe» y no se sigue al escribir.
+/// 4. Si no existe, se intenta materializar el CSS por defecto en el
+///    directorio (creándolo si hace falta). Si la escritura falla, se aplica
+///    igualmente el CSS por defecto desde memoria y se avisa.
+pub(crate) fn resolve_stylesheet(config_dir: Option<&Path>) -> ResolvedStylesheet {
+    let Some(config_dir) = config_dir else {
+        return ResolvedStylesheet {
+            css: Css::default(),
+            warnings: Vec::new(),
+        };
+    };
+
+    let path = config_dir.join(STYLESHEET_FILE);
+    match fs::read_to_string(&path) {
+        Ok(css) => {
+            debug!("config dir: {}", config_dir.display());
+            return ResolvedStylesheet {
+                css,
+                warnings: Vec::new(),
+            };
         }
+        Err(e) if fs::symlink_metadata(&path).is_ok() => {
+            return ResolvedStylesheet {
+                css: Css::default(),
+                warnings: vec![format!(
+                    "no se pudo leer {}: {e}; se usa el CSS por defecto",
+                    path.display()
+                )],
+            };
+        }
+        Err(_) => {}
+    }
+
+    // El fichero no existe: se intenta guardar el CSS por defecto para que el
+    // usuario tenga un punto de partida editable.
+    let default_css = Css::default();
+    let mut warnings = Vec::new();
+    if let Err(e) = fs::create_dir_all(config_dir).and_then(|()| fs::write(&path, &default_css)) {
+        warnings.push(format!(
+            "no se pudo escribir {}: {e}; se usa el CSS por defecto en memoria",
+            path.display()
+        ));
+    } else {
+        debug!("Saved");
+    }
+    ResolvedStylesheet {
+        css: default_css,
+        warnings,
+    }
+}
+
+impl Css {
+    /// Carga la hoja de estilos aplicable a la aplicación.
+    ///
+    /// No falla nunca: si el directorio de configuración no existe, no se puede
+    /// crear o no es escribible, se aplica el CSS por defecto desde memoria y se
+    /// registra un aviso. Un problema de estilos no debe abortar el arranque.
+    pub fn load() -> CssProvider {
+        let resolved = resolve_stylesheet(
+            ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_APPLICATION)
+                .map(|proj_dirs| proj_dirs.config_dir().to_path_buf())
+                .as_deref(),
+        );
+        for warning in &resolved.warnings {
+            warn!("{warning}");
+        }
+        let provider = CssProvider::new();
+        provider.load_from_string(&resolved.css);
+        provider
     }
     fn default() -> String {
         "
@@ -85,8 +150,10 @@ impl Css {
 
 #[cfg(test)]
 mod tests {
-    use super::Css;
+    use super::{Css, resolve_stylesheet};
     use crate::utils::LISTBOX_NAME;
+    use std::fs;
+    use tempfile::TempDir;
 
     /// Extrae el bloque de declaraciones que sigue al primer `selector` encontrado.
     fn rule_block(css: &str, selector: &str) -> String {
@@ -157,6 +224,133 @@ mod tests {
             block.contains("background-image: none"),
             "la fila seleccionada debería anular la imagen de fondo del tema \
              (un gradiente enmascararía el resaltado): {block}"
+        );
+    }
+
+    #[test]
+    fn resolve_uses_user_stylesheet_when_readable() {
+        let dir = TempDir::new().expect("no se pudo crear el directorio temporal");
+        let user_css = ".result-name { color: red; }";
+        fs::write(dir.path().join("style.css"), user_css).expect("no se pudo escribir el CSS");
+
+        let resolved = resolve_stylesheet(Some(dir.path()));
+
+        assert_eq!(resolved.css, user_css);
+        assert!(
+            resolved.warnings.is_empty(),
+            "no debería haber avisos con un CSS legible: {:?}",
+            resolved.warnings
+        );
+    }
+
+    #[test]
+    fn resolve_does_not_overwrite_readable_user_stylesheet() {
+        let dir = TempDir::new().expect("no se pudo crear el directorio temporal");
+        let path = dir.path().join("style.css");
+        let user_css = ".result-name { color: red; }";
+        fs::write(&path, user_css).expect("no se pudo escribir el CSS");
+
+        let resolved = resolve_stylesheet(Some(dir.path()));
+
+        assert_eq!(resolved.css, user_css);
+        let after = fs::read_to_string(&path).expect("el fichero debería seguir siendo legible");
+        assert_eq!(
+            after, user_css,
+            "un CSS legible del usuario nunca debe sobrescribirse"
+        );
+    }
+
+    #[test]
+    fn resolve_falls_back_when_user_stylesheet_is_unreadable() {
+        let dir = TempDir::new().expect("no se pudo crear el directorio temporal");
+        let path = dir.path().join("style.css");
+        // Un directorio con ese nombre hace fallar la lectura incluso como root.
+        fs::create_dir(&path).expect("no se pudo crear el directorio style.css");
+
+        let resolved = resolve_stylesheet(Some(dir.path()));
+
+        assert_eq!(resolved.css, Css::default());
+        assert!(
+            !resolved.warnings.is_empty(),
+            "un CSS ilegible debería acumular un aviso"
+        );
+        assert!(
+            path.is_dir(),
+            "el CSS ilegible del usuario no debe borrarse ni sobrescribirse"
+        );
+    }
+
+    #[test]
+    fn resolve_writes_default_stylesheet_when_missing() {
+        let dir = TempDir::new().expect("no se pudo crear el directorio temporal");
+        let path = dir.path().join("style.css");
+
+        let resolved = resolve_stylesheet(Some(dir.path()));
+
+        assert_eq!(resolved.css, Css::default());
+        assert!(
+            resolved.warnings.is_empty(),
+            "crear el CSS por defecto no debería avisar: {:?}",
+            resolved.warnings
+        );
+        let written = fs::read_to_string(&path).expect("debería haberse escrito style.css");
+        assert_eq!(written, Css::default());
+    }
+
+    #[test]
+    fn resolve_falls_back_in_memory_when_directory_is_not_writable() {
+        let dir = TempDir::new().expect("no se pudo crear el directorio temporal");
+        // El padre de `config_dir` es un fichero regular: `create_dir_all` y la
+        // escritura fallan incluso ejecutando como root.
+        let blocker = dir.path().join("afile");
+        fs::write(&blocker, "no soy un directorio").expect("no se pudo escribir el fichero");
+
+        let resolved = resolve_stylesheet(Some(&blocker));
+
+        assert_eq!(resolved.css, Css::default());
+        assert!(
+            !resolved.warnings.is_empty(),
+            "un directorio no escribible debería acumular un aviso"
+        );
+    }
+
+    #[test]
+    fn resolve_falls_back_without_config_dir() {
+        let resolved = resolve_stylesheet(None);
+
+        assert_eq!(resolved.css, Css::default());
+        assert!(
+            resolved.warnings.is_empty(),
+            "sin directorio de configuración no hay nada que avisar: {:?}",
+            resolved.warnings
+        );
+    }
+
+    /// Un enlace simbólico roto cuenta como «existe»: `path.exists()` sigue el
+    /// enlace y devolvería `false`, con lo que `fs::write` habría creado el
+    /// destino del enlace al materializar el CSS por defecto. El destino vive
+    /// fuera del directorio de configuración a propósito: si la política lo
+    /// siguiera, el test lo vería aparecer.
+    #[test]
+    fn resolve_does_not_follow_broken_symlink() {
+        let tmp = TempDir::new().expect("no se pudo crear el directorio temporal");
+        let config_dir = tmp.path().join("config");
+        fs::create_dir(&config_dir).expect("no se pudo crear el directorio de configuración");
+        // El padre del destino existe, así que seguirlo crearía el fichero.
+        let target = tmp.path().join("outside.css");
+        let link = config_dir.join("style.css");
+        std::os::unix::fs::symlink(&target, &link).expect("no se pudo crear el enlace");
+
+        let resolved = resolve_stylesheet(Some(&config_dir));
+
+        assert_eq!(resolved.css, Css::default());
+        assert!(
+            !resolved.warnings.is_empty(),
+            "un enlace roto debería acumular un aviso en vez de tratarse como ausente"
+        );
+        assert!(
+            !target.exists(),
+            "materializar el CSS por defecto no debe seguir el enlace ni crear su destino"
         );
     }
 }
