@@ -15,7 +15,7 @@ jobs:
         run: pacman -Syu --noconfirm --needed git nodejs
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: pacman -S --noconfirm --needed rust rustfmt clippy pkgconf gtk4 gtk4-layer-shell
+        run: pacman -S --noconfirm --needed rust pkgconf gtk4 gtk4-layer-shell
       - name: Rust toolchain
         run: rustc --version && cargo --version
       - name: Check formatting
