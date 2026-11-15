@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: rustup target add ${{ matrix.target }}
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+      - name: Install system dependencies
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev pkg-config meson ninja-build libwayland-dev wayland-protocols
+          if ! sudo apt-get install -y libgtk4-layer-shell-dev; then
+            git clone --depth 1 https://github.com/wmww/gtk4-layer-shell.git /tmp/gtk4-layer-shell
+            cd /tmp/gtk4-layer-shell && meson setup build && ninja -C build && sudo ninja -C build install
+            sudo ldconfig
+          fi
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Prepare archive
+        shell: bash
+        run: |
+          BIN="target/${{ matrix.target }}/release/lila"
+          PKG="lila-${{ matrix.target }}"
+          tar czf "$PKG.tar.gz" -C "target/${{ matrix.target }}/release" lila
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lila-${{ matrix.target }}
+          path: lila-${{ matrix.target }}.tar.gz
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: lila-*
+          merge-multiple: true
+      - name: Generate release body
+        run: |
+          cat > notes.md <<'EOF'
+          ## LiLa
+
+          Lanzador de aplicaciones para Wayland (GTK4 + gtk4-layer-shell).
+
+          ### Downloads
+
+          | Architecture | File |
+          |---|---|
+          EOF
+          for f in lila-*.tar.gz; do
+            [ -f "$f" ] || continue
+            arch=$(echo "$f" | sed 's/^lila-//; s/\.tar\.gz$//')
+            echo "| \`$arch\` | \`$f\` |" >> notes.md
+          done
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LiLa ${{ github.ref_name }}
+          body_path: notes.md
+          files: lila-*.tar.gz
+          generate_release_notes: true
