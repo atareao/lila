@@ -26,7 +26,9 @@ pub(crate) struct ResolvedStylesheet {
 /// 2. Si `<config_dir>/style.css` es legible, manda el fichero del usuario: se
 ///    usa su contenido y no se escribe nada (el fichero es del usuario).
 /// 3. Si existe pero no es legible, se usa el CSS por defecto en memoria y se
-///    avisa: nunca se sobrescribe ni se borra lo que el usuario tenga ahí.
+///    avisa: nunca se sobrescribe ni se borra lo que el usuario tenga ahí. La
+///    existencia se comprueba con `symlink_metadata`, de modo que un enlace
+///    simbólico roto también cuenta como «existe» y no se sigue al escribir.
 /// 4. Si no existe, se intenta materializar el CSS por defecto en el
 ///    directorio (creándolo si hace falta). Si la escritura falla, se aplica
 ///    igualmente el CSS por defecto desde memoria y se avisa.
@@ -47,7 +49,7 @@ pub(crate) fn resolve_stylesheet(config_dir: Option<&Path>) -> ResolvedStyleshee
                 warnings: Vec::new(),
             };
         }
-        Err(e) if path.exists() => {
+        Err(e) if fs::symlink_metadata(&path).is_ok() => {
             return ResolvedStylesheet {
                 css: Css::default(),
                 warnings: vec![format!(
@@ -321,6 +323,34 @@ mod tests {
             resolved.warnings.is_empty(),
             "sin directorio de configuración no hay nada que avisar: {:?}",
             resolved.warnings
+        );
+    }
+
+    /// Un enlace simbólico roto cuenta como «existe»: `path.exists()` sigue el
+    /// enlace y devolvería `false`, con lo que `fs::write` habría creado el
+    /// destino del enlace al materializar el CSS por defecto. El destino vive
+    /// fuera del directorio de configuración a propósito: si la política lo
+    /// siguiera, el test lo vería aparecer.
+    #[test]
+    fn resolve_does_not_follow_broken_symlink() {
+        let tmp = TempDir::new().expect("no se pudo crear el directorio temporal");
+        let config_dir = tmp.path().join("config");
+        fs::create_dir(&config_dir).expect("no se pudo crear el directorio de configuración");
+        // El padre del destino existe, así que seguirlo crearía el fichero.
+        let target = tmp.path().join("outside.css");
+        let link = config_dir.join("style.css");
+        std::os::unix::fs::symlink(&target, &link).expect("no se pudo crear el enlace");
+
+        let resolved = resolve_stylesheet(Some(&config_dir));
+
+        assert_eq!(resolved.css, Css::default());
+        assert!(
+            !resolved.warnings.is_empty(),
+            "un enlace roto debería acumular un aviso en vez de tratarse como ausente"
+        );
+        assert!(
+            !target.exists(),
+            "materializar el CSS por defecto no debe seguir el enlace ni crear su destino"
         );
     }
 }

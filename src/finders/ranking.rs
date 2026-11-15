@@ -304,6 +304,62 @@ mod tests {
         })
     }
 
+    /// [TDD-RED-A2-10] El nombre conserva su peso: con dos ítems que coinciden
+    /// con la misma consulta —uno por su nombre y otro solo por una palabra
+    /// clave— ambos aparecen en el resultado, sin penalización por haberse
+    /// encontrado la coincidencia fuera del nombre.
+    ///
+    /// `best_fuzzy_match` puntúa por separado el nombre, cada palabra clave y
+    /// cada categoría, y se queda con el máximo. Por eso el ítem que solo
+    /// coincide por `Keywords` obtiene la misma puntuación que tendría si la
+    /// consulta fuese su nombre: no hay castigo por el ámbito. En esta fixture
+    /// la palabra clave coincide literalmente con la consulta (`photos`),
+    /// mientras que el nombre solo coincide ignorando mayúsculas (`Photos`), y
+    /// skim premia la coincidencia literal; por eso el orden esperado pone
+    /// delante al ítem de la palabra clave aunque vaya segundo en la entrada
+    /// (la ordenación no es un empate resuelto por el orden de entrada). Si la
+    /// coincidencia por nombre estuviese penalizada, el orden se invertiría.
+    #[test]
+    fn name_match_is_not_penalized_against_keyword_match() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let by_name = app_with_metadata(tmp.path(), "photos.desktop", "Photos", None, None);
+        let by_keyword = app_with_metadata(
+            tmp.path(),
+            "viewer.desktop",
+            "Image Viewer",
+            Some("photos;"),
+            None,
+        );
+        let meta = MetadataCache::default();
+
+        // Aserción de fixture: hace explícito por qué el orden esperado es el
+        // que se afirma abajo (la coincidencia literal supera a la del nombre).
+        let matcher = SkimMatcherV2::default();
+        let keyword_score = matcher.fuzzy_match("photos", "photos").expect("coincide");
+        let name_score = matcher.fuzzy_match("Photos", "photos").expect("coincide");
+        assert!(
+            keyword_score > name_score,
+            "fixture: {keyword_score} debería superar a {name_score}"
+        );
+
+        let ranked = rank_items(
+            &[by_name, by_keyword],
+            &IdCache::default(),
+            &meta,
+            "photos",
+            Some(&MemoryHistory::default()),
+            &Config::default(),
+            NOW,
+        );
+
+        let ranked_names = names(&ranked);
+        assert!(
+            ranked_names.contains(&"Photos") && ranked_names.contains(&"Image Viewer"),
+            "ambos ítems deben aparecer en el resultado: {ranked_names:?}"
+        );
+        assert_eq!(ranked_names, vec!["Image Viewer", "Photos"]);
+    }
+
     /// [TDD-RED-B2-05] La frecuencia desempata dos coincidencias idénticas.
     #[test]
     fn frequency_breaks_ties_between_equally_matching_items() {

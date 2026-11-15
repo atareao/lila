@@ -59,6 +59,11 @@ impl Item {
 
     /// Palabras clave derivadas del campo `Keywords` del `.desktop`.
     /// Devuelve un vector vacío si no se puede cargar.
+    ///
+    /// Solo la usan los tests, como oráculo **sin caché** con el que contrastar
+    /// [`MetadataCache`]: la ruta de producción lee los metadatos a través de la
+    /// caché.
+    #[cfg(test)]
     pub fn keywords(&self) -> Vec<String> {
         match self {
             Item::App(app) => DesktopAppInfo::from_filename(&app.app_desktop_path)
@@ -69,6 +74,10 @@ impl Item {
 
     /// Categorías derivadas del campo `Categories` del `.desktop`.
     /// Devuelve un vector vacío si no se puede cargar.
+    ///
+    /// Solo la usan los tests, como oráculo **sin caché** con el que contrastar
+    /// [`MetadataCache`].
+    #[cfg(test)]
     pub fn categories(&self) -> Vec<String> {
         match self {
             Item::App(app) => DesktopAppInfo::from_filename(&app.app_desktop_path)
@@ -170,9 +179,10 @@ struct Metadata {
 ///
 /// Comparte la política de [`IdCache`]: memoriza toda resolución correcta,
 /// incluido el vector vacío de una app que legítimamente no declara metadatos.
-/// Lo único que no memoriza es un fallo de lectura (`.desktop` inexistente o
-/// ilegible), que se reintenta en la siguiente consulta para que una app
-/// instalada más tarde se resuelva sin reiniciar.
+/// Lo único que no memoriza es un fallo de resolución (`.desktop` inexistente o
+/// ilegible): en ese caso devuelve el vector vacío **sin reabrir el fichero que
+/// acaba de fallar**, de modo que la siguiente consulta reintenta la lectura
+/// una sola vez y una app instalada más tarde se resuelve sin reiniciar.
 #[derive(Debug, Default)]
 pub struct MetadataCache {
     resolved: RefCell<HashMap<PathBuf, Metadata>>,
@@ -182,7 +192,8 @@ impl MetadataCache {
     /// Palabras clave de `item`, reutilizando las ya resueltas para su ruta.
     ///
     /// Equivale a [`Item::keywords`] pero sin repetir la E/S cuando la ruta ya
-    /// se resolvió antes.
+    /// se resolvió antes. Si la ruta no se pudo resolver devuelve vacío, sin
+    /// reabrir el `.desktop` que acaba de fallar.
     pub fn keywords(&self, item: &Item) -> Vec<String> {
         let path = item.desktop_path();
         self.ensure_resolved(path);
@@ -190,13 +201,14 @@ impl MetadataCache {
             .borrow()
             .get(path)
             .map(|metadata| metadata.keywords.clone())
-            .unwrap_or_else(|| item.keywords())
+            .unwrap_or_default()
     }
 
     /// Categorías de `item`, reutilizando las ya resueltas para su ruta.
     ///
     /// Equivale a [`Item::categories`] pero sin repetir la E/S cuando la ruta
-    /// ya se resolvió antes.
+    /// ya se resolvió antes. Si la ruta no se pudo resolver devuelve vacío, sin
+    /// reabrir el `.desktop` que acaba de fallar.
     pub fn categories(&self, item: &Item) -> Vec<String> {
         let path = item.desktop_path();
         self.ensure_resolved(path);
@@ -204,15 +216,15 @@ impl MetadataCache {
             .borrow()
             .get(path)
             .map(|metadata| metadata.categories.clone())
-            .unwrap_or_else(|| item.categories())
+            .unwrap_or_default()
     }
 
     /// Resuelve y memoriza los metadatos de `path` si aún no lo están.
     ///
     /// Una sola lectura cubre las dos claves. Si el `.desktop` no se puede
     /// cargar no se memoriza nada: la siguiente consulta lo reintenta y, entre
-    /// tanto, [`MetadataCache::keywords`] y [`MetadataCache::categories`] caen
-    /// al respaldo de [`Item`] (vector vacío).
+    /// tanto, [`MetadataCache::keywords`] y [`MetadataCache::categories`]
+    /// devuelven el vector vacío sin volver a tocar el disco.
     fn ensure_resolved(&self, path: &Path) {
         if self.resolved.borrow().contains_key(path) {
             return;
