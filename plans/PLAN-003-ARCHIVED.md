@@ -2,7 +2,7 @@
 
 - **Issue:** #16 (asignado a `atareao`)
 - **Change OpenSpec:** `openspec/changes/deuda-tecnica-post-m1/`
-- **Estado:** implementado y auditado — PR abierto a `development`; pendiente la comprobación manual en Wayland y el merge
+- **Estado:** completado — fusionado en `development` (PR #30/#31); comprobación manual en Wayland superada el 2026-11-15 (niri): vacío ≈13-16 filas, `process` → btop++, `decibels` → Reproductor de sonido, `monitor` → btop++, `u` casa con casi todo (follow-up ya documentado)
 - **Contexto:** LiLa (launcher Wayland GTK4 + gtk4-layer-shell, Rust edition 2024). Tras el Milestone 1 (`plans/PLAN-001-ARCHIVED.md`) y el follow-up 5.3 (`plans/PLAN-002.md`, atajo D-Bus), la release `v0.2.0` está publicada y `main == development`. Queda deuda técnica acumulada del core: `#[allow(dead_code)]` sin justificación, metadatos de `.desktop` (`Keywords`/`Categories`) calculados pero no usados en la búsqueda, política de carga del CSS sin especificar y `history.load_all()` ejecutándose en cada pulsación.
 
 ## Objetivo
@@ -66,7 +66,7 @@ Hoy `rank_items()` llama a `history.load_all()` en cada pulsación (`src/finders
 - [x] **E3 — A2 (feature).** RED→GREEN→REFACTOR: tests de `MetadataCache` (memoiza cada ruta, reintenta tras fallo) y de la coincidencia por keywords/categories en `filter_items`/`rank_items`; implementación; clippy/fmt en verde.
 - [x] **E4 — B (política CSS).** RED→GREEN→REFACTOR: tests de la función pura de decisión (existe/lee mal/no existe/escribible/no escribible/sin XDG) y de que `Css::load()` no hace panic ni devuelve `Result`; quitar el `.expect` del punto de llamada.
 - [x] **E5 — C (caché de historial).** RED→GREEN→REFACTOR: tests del decorador (1 `load_all` para N búsquedas, invalidación en `record`, no se memoriza el fallo) y de que el ranking no cambia; cableado en `main.rs`.
-- [ ] **E6 — Verificación y cierre.** (en curso: docs escritas, auditoría cerrada, change archivado y PR abierto a `development`; pendiente el merge, la comprobación manual en Wayland y el renombrado de este plan) `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` en verde; `docs/deuda-tecnica-post-m1.md`; auditoría `@rust-reviewer`; `openspec archive deuda-tecnica-post-m1`; PR de `feature/deuda-tecnica-post-m1` a `development`; cerrar #16; marcar PLAN-003 como completado y renombrarlo a `plans/PLAN-003-ARCHIVED.md`.
+- [x] **E6 — Verificación y cierre.** (en curso: docs escritas, auditoría cerrada, change archivado y PR abierto a `development`; comprobación manual en Wayland superada el 2026-11-15 y plan archivado) `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` en verde; `docs/deuda-tecnica-post-m1.md`; auditoría `@rust-reviewer`; `openspec archive deuda-tecnica-post-m1`; PR de `feature/deuda-tecnica-post-m1` a `development`; cerrar #16; marcar PLAN-003 como completado y renombrarlo a `plans/PLAN-003-ARCHIVED.md`.
 
 ## Escenarios de aceptación (BDD)
 - **Coincidencia por palabra clave.** Given una aplicación cuyo `.desktop` declara `Keywords=photos;image;editor;` y cuyo nombre no contiene ninguna, When el usuario escribe `photo`, Then la aplicación aparece como resultado.
