@@ -148,6 +148,8 @@ cargo build
 ./target/debug/lila          # o: cargo run
 ```
 
+Comprobación manual ejecutada el **2026-11-15** bajo Wayland (compositor niri) con el binario de esta rama y `XDG_CONFIG_HOME` aislado: consulta vacía ≈13-16 filas; `process` → 5 filas con `btop++` (casa por `Keywords`) y Letterpress por `ImageProcessing`; `decibels` → única fila «Reproductor de sonido» (org.gnome.Decibels, `Keywords`); `monitor` → `btop++` (casa por `Categories`); el filtrado en vivo reduce la lista en cada pulsación.
+
 - Teclear en el dashboard sigue filtrando igual que antes.
 - Una app cuyo `.desktop` declara `Keywords` coincide al buscar por esa palabra aunque no esté en su nombre.
 - En el primer arranque se escribe y aplica el estilo por defecto.
@@ -158,7 +160,8 @@ cargo build
 
 - **Los tres `#[allow(dead_code)]` de `src/history/mod.rs`** (`usage()`, `score()`, `usage_score()`): se mantienen porque son el contrato del trait `HistoryRepository` (los implementan todos los repos, incluidos los de test) y solo los ejercitan los tests del módulo; la ruta de ranking lee el historial de una vez con `load_all()` y no los invoca. Retirarlos exigiría recortar el trait.
 - **Divergencia de clave entre escritura y lectura del historial:** `record_launch()` (`src/main.rs`) usa `item.id()` mientras el ranking consulta con `IdCache::id`. Hoy no divergen en la práctica, pero conviene unificarlos para que la clave con la que se escribe y la clave con la que se lee no puedan separarse.
-- **Consultas cortas o genéricas con `Categories`:** incluir las categorías hace que consultas de un solo carácter (p. ej. `u` o `a`) casen con casi cualquier aplicación. Es el comportamiento sancionado por la spec («el conjunto de coincidencias solo se amplía, nunca se reduce»), pero hay que verificarlo en la comprobación manual; candidato a follow-up: exigir una longitud mínima de consulta o no usar categorías en consultas de un carácter.
+- **Consultas cortas o genéricas con `Categories`:** incluir las categorías hace que consultas de un solo carácter (p. ej. `u` o `a`) casen con casi cualquier aplicación. Es el comportamiento sancionado por la spec («el conjunto de coincidencias solo se amplía, nunca se reduce»), verificado en la comprobación manual del 2026-11-15 (la consulta `u` casa con casi todas las aplicaciones); candidato a follow-up: exigir una longitud mínima de consulta o no usar categorías en consultas de un carácter.
 - **Fixture `EXEC_BINARY = "/usr/bin/env"`:** los tests que leen metadatos necesitan un `Exec` que resuelva, porque GLib descarta un `.desktop` cuyo binario no existe; conviene una guarda que lo detecte si algún día falta en el entorno de CI.
 - **Posible unificación de `IdCache` y `MetadataCache`** en un único tipo genérico de caché por ruta: se propuso mantener dos tipos paralelos por simplicidad de lectura; unificarlos queda como refactor posterior.
 - **Recarga en caliente del CSS:** solo se define su política de carga al arrancar; editar `style.css` en caliente no se refleja hasta reiniciar.
+- **Ítems con `Name` vacío en el índice:** durante la comprobación manual aparecieron filas con el nombre en blanco y solo el comentario visible (p. ej. `gnome-applications-panel.desktop`, `App { name: "" }` en el log de debug). Queda por decidir si se descartan esos ítems o se les da un nombre de respaldo a partir del `Comment`/`GenericName`; es ajeno a A2, pero afecta a la legibilidad de la lista.

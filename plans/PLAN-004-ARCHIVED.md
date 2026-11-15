@@ -3,7 +3,7 @@
 - **Issue**: #32 (https://github.com/atareao/lila/issues/32)
 - **Change OpenSpec**: `openspec/changes/fix-config-first-run`
 - **Rama**: `feature/fix-config-first-run`
-- **Estado**: borrador (pendiente de aprobación del spec)
+- **Estado**: completado — fusionado en `development` (PR #33); verificado en Wayland (primer arranque limpio, YAML inválido → `exit(2)` con fichero intacto, directorio no escribible → continúa con default)
 
 ## Objetivo
 
@@ -20,13 +20,14 @@ Que el primer arranque de LiLa en una máquina sin `~/.config/lila/config.yml` n
 - Bug pre-existente (commit `9c9678b`, 2025-06-22), no introducido por la deuda técnica post-M1.
 - Reproducido en sesión Wayland: con `XDG_CONFIG_HOME` vacío, `target/debug/lila` hace `panic` en `src/main.rs:685` tras crear `config.yml`. El 2º arranque funciona.
 - `Config::load()` no tenía cobertura de test.
+- Cerrado el 2026-11-15: los dos PR (#33 y #34) fusionados en `development` y la comprobación manual del #16 superada ese mismo día.
 
 ## Tareas
 
-1. **TDD** — función pura `load_config_from(Option<&Path>) -> Result<Config, ConfigError>` + reescritura de `Config::load()` (detalle en `openspec/changes/fix-config-first-run/tasks.md`, sección 1).
-2. **Punto de llamada** — sustituir el `.expect` de `src/main.rs:685` por un `match` con error claro y `exit(2)`.
-3. **Verificación** — arranque limpio en Wayland + singleton + caso inválido; comprobación manual pendiente del issue #16.
-4. **Cierre** — `docs/config-first-run.md`, archivar change y planes.
+1. [x] **TDD** — función pura `load_config_from(Option<&Path>) -> Result<Config, ConfigError>` + reescritura de `Config::load()` (detalle en `openspec/changes/fix-config-first-run/tasks.md`, sección 1).
+2. [x] **Punto de llamada** — sustituir el `.expect` de `src/main.rs:685` por un `match` con error claro y `exit(2)`.
+3. [x] **Verificación** — arranque limpio en Wayland + singleton + caso inválido; comprobación manual del issue #16 superada el 2026-11-15.
+4. [x] **Cierre** — `docs/config-first-run.md`, archivar change y planes.
 
 ## Criterio de aceptación
 
