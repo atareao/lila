@@ -1,17 +1,15 @@
-# Handoff — lila — 2026-11-15 — Fix del primer arranque fusionado y check del #16 superado; planes 003/004 archivados en PR #35
+# Handoff — lila — 2026-11-15 — Sesión cerrada: fix del primer arranque y check del #16 fusionados en `development`
 
 ## Estado
-- `development` = `f466e4f`: **PR #33** (fix del primer arranque, issue #32) y **PR #34** (relevo) ya **fusionados**. Puerta de calidad en `development`: **126 tests** verde, `cargo clippy --all-targets -- -D warnings` y `cargo fmt --check` limpios.
-- **Comprobación manual del issue #16 SUPERADA** el 2026-11-15 en Wayland (compositor niri), automatizada con `ydotool` + capturas `grim` y revisada a mano: consulta vacía ≈13-16 filas; `process` → 5 filas con **btop++** (casa por `Keywords=system;process;task`) y Letterpress por `ImageProcessing`; `decibels` → única fila «Reproductor de sonido» (org.gnome.Decibels, casa por `Keywords`); `monitor` → 9 filas con **btop++** (casa por `Categories=System;Monitor;ConsoleOnly;`); `u` casa con casi todas las apps. El issue #16 ya estaba **cerrado**.
-- **PR #35 abierto, sin fusionar**: https://github.com/atareao/lila/pull/35 — rama `chore/cierre-plan-003-004`, commit `d02f690`: archiva `plans/PLAN-003-ARCHIVED.md` y `plans/PLAN-004-ARCHIVED.md` (tareas marcadas y estado a «completado») y anota la verificación en `docs/deuda-tecnica-post-m1.md`.
+- `development` = `df336ae`. Puerta de calidad en verde: **126 tests**, `cargo clippy --all-targets -- -D warnings` y `cargo fmt --check` limpios. Árbol limpio, sin ramas de trabajo pendientes (todas las de hoy están fusionadas).
+- Fusionado hoy: **#33** (fix del primer arranque sin `config.yml`, issue #32), **#34** y **#36** (relevos de sesión) y **#35** (`plans/PLAN-003.md` → `plans/PLAN-003-ARCHIVED.md`, `plans/PLAN-004.md` → `plans/PLAN-004-ARCHIVED.md`, con la verificación anotada en `docs/deuda-tecnica-post-m1.md`).
+- **Comprobación manual del issue #16 SUPERADA** el 2026-11-15 en Wayland (niri), automatizada con `ydotool` + `grim` y revisada a mano: `process` → **btop++** (casa por `Keywords`) y Letterpress por `ImageProcessing`; `decibels` → única fila «Reproductor de sonido» (org.gnome.Decibels, por `Keywords`); `monitor` → **btop++** (por `Categories=System;Monitor;ConsoleOnly;`); `u` casa con casi todas las apps; filtrado en vivo correcto. El issue #16 ya estaba cerrado.
+- **No hay tareas de código abiertas.**
 
-## Pendiente inmediato
-1. **Fusionar el PR #35** si procede (CI en curso).
-2. **Decidir si se abren issues** para los dos follow-ups nuevos: (a) consulta de un carácter con `Categories` casa con casi todo → exigir longitud mínima de consulta o excluir categorías en consultas de 1 char; (b) ítems con `Name` vacío en el índice (`gnome-applications-panel.desktop`) que salen con el nombre en blanco → descartarlos o darles nombre de respaldo desde `Comment`/`GenericName`.
-3. No hay tareas de código abiertas.
-
-## Incidente de la sesión (a limpiar por el usuario)
-- La verificación se automatizó con `ydotool`. Al ocultarse lila (un `Super_L` del teclado real le quitó la activación) el texto `consoleonly` quedó escrito en la línea de entrada de terminales del usuario. **No se envió ningún Enter** (nada se ejecutó), pero conviene borrar ese texto suelto a mano.
+## Pendiente para la próxima sesión
+1. **Decidir si se abren issues** para los dos follow-ups nuevos: (a) la consulta de un carácter con `Categories` casa con casi todo → exigir longitud mínima de consulta o excluir categorías en consultas de 1 carácter; (b) ítems con `Name` vacío en el índice (`gnome-applications-panel.desktop`) que salen con el nombre en blanco → descartarlos o darles nombre de respaldo desde `Comment`/`GenericName`.
+2. **`plans/PLAN-002.md`** (atajo D-Bus, ya en `v0.2.0`) sigue sin renombrar a `-ARCHIVED`: decidir si se archiva ya.
+3. **A limpiar por el usuario**: el texto suelto `consoleonly` que quedó tecleado con `ydotool` en la línea de entrada de terminales al ocultarse lila (un `Super_L` del teclado real le quitó la activación). **No se envió Enter**, nada se ejecutó.
 
 ## Punto de partida
 ```bash
@@ -20,6 +18,6 @@ cd /data/rust/lila && git checkout development && git pull && cargo test && carg
 Esperado: 126 tests verde, clippy y fmt limpios.
 
 ## Notas / follow-ups
-- Verificación e2e reutilizable sin tocar la config del usuario: `XDG_CONFIG_HOME=/tmp/opencode/e2e-xdg` con copia de `config.yml` + `style.css`, teclear con `ydotool type` y capturar con `grim`. **lila se oculta al perder el foco**, así que hay que teclear solo cuando tiene la activación.
+- Verificación e2e reutilizable sin tocar la config del usuario: lanzar con `XDG_CONFIG_HOME=/tmp/opencode/e2e-xdg` (copia de `config.yml` + `style.css`), teclear con `ydotool type` y capturar con `grim`. **lila se oculta al perder el foco**: teclear solo cuando tiene la activación.
 - Siguen abiertos de sesiones anteriores: un `config.yml` mínimo (p. ej. `width: 640`) parsea con los defaults *de tipo* de serde (`extensions: []`) → lanzador sin resultados y sin aviso; el envoltorio XDG (`Config::load()`) no tiene test unitario propio (se cubre con la función pura `load_config_from`); unificar `IdCache` con `record_launch`; `url()`/`@import` relativos del CSS.
 - Releases: `v0.2.0` en `main`. Para publicar: `gh workflow run "Prepare Release"`.
