@@ -44,15 +44,6 @@ impl Item {
         }
     }
 
-    /// Ruta del ejecutable de la aplicación (si existe)
-    // TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-    #[allow(dead_code)]
-    pub fn exec(&self) -> Option<&Path> {
-        match self {
-            Item::App(app) => app.app_path_exe.as_deref(),
-        }
-    }
-
     /// Subtítulo derivado de `GenericName` o, en su defecto, `Comment`.
     /// Devuelve `None` sin entrar en pánico si el `.desktop` no se puede cargar.
     pub fn subtitle(&self) -> Option<String> {
@@ -216,28 +207,26 @@ mod tests {
         assert_eq!(item.id(), missing.to_string_lossy());
     }
 
-    /// [TDD-RED-02] `icon_path()` y `exec()` devuelven lo esperado con datos conocidos
+    /// [TDD-RED-02] `icon_path()` devuelve lo esperado con datos conocidos
     #[test]
-    fn icon_path_and_exec_return_expected_values() {
+    fn icon_path_returns_expected_values() {
         let tmp = TempDir::new().expect("TempDir::new()");
         let icon = tmp.path().join("icon.png");
-        let binary = tmp.path().join("binary");
 
         let app = App {
             name: String::from("IconExecApp"),
             icon_path: Some(icon.clone()),
-            app_path_exe: Some(binary.clone()),
+            app_path_exe: None,
             app_desktop_path: tmp.path().join("app.desktop"),
         };
         let item = Item::App(app);
 
         assert_eq!(item.icon_path(), Some(icon.as_path()));
-        assert_eq!(item.exec(), Some(binary.as_path()));
     }
 
-    /// [TDD-RED-02b] `icon_path()`/`exec()` devuelven `None` cuando no hay datos
+    /// [TDD-RED-02b] `icon_path()` devuelve `None` cuando no hay datos
     #[test]
-    fn icon_path_and_exec_are_none_when_absent() {
+    fn icon_path_is_none_when_absent() {
         let tmp = TempDir::new().expect("TempDir::new()");
         let app = App {
             name: String::from("NoPathsApp"),
@@ -248,7 +237,6 @@ mod tests {
         let item = Item::App(app);
 
         assert_eq!(item.icon_path(), None);
-        assert_eq!(item.exec(), None);
     }
 
     /// [TDD-RED-03] `subtitle()` devuelve `None` sin pánico cuando el `.desktop` no existe

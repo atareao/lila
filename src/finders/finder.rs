@@ -24,14 +24,6 @@ impl Finder {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn update(&mut self) {
-        match self {
-            Finder::EmptyFinder(finder) => finder.update(),
-            Finder::ApplicationFinder(finder) => finder.update(),
-        }
-    }
-
     pub fn search(&self, query: &str) -> Vec<Item> {
         match self {
             Finder::EmptyFinder(finder) => finder.search(query),
