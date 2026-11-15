@@ -6,4 +6,4 @@ mod item;
 pub use config::Config;
 pub use css::Css;
 pub use extension::Extension;
-pub use item::{IdCache, Item};
+pub use item::{IdCache, Item, MetadataCache};

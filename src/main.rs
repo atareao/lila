@@ -20,7 +20,7 @@ use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use history::{HistoryRepository, SqliteHistory};
-use models::{Config, Css, IdCache, Item};
+use models::{Config, Css, IdCache, Item, MetadataCache};
 use std::cell::{Cell, OnceCell, RefCell};
 use std::io;
 use std::rc::Rc;
@@ -377,12 +377,16 @@ fn activate(
     {
         config = mutex_config.lock().unwrap();
     }
+    // Caché de metadatos (`Keywords`/`Categories`) por ruta: la búsqueda los
+    // consulta para todos los ítems en cada pulsación y sin caché cada uno
+    // reabriría su `.desktop`. Vive tanto como la ventana.
+    let meta = Rc::new(MetadataCache::default());
     let apps: Vec<Item> = config
         .extensions
         .iter()
         .find(|e| e.name == "application-finder")
         .or_else(|| config.extensions.first())
-        .map(|e| e.finder.search(""))
+        .map(|e| e.finder.search("", &meta))
         .unwrap_or_default();
     let apps = Rc::new(apps);
     // Caché de ids canónicos: `Item::id()` canonicaliza su `.desktop` (E/S) y el
@@ -583,6 +587,7 @@ fn activate(
         let entry = entry.clone();
         let history = history.clone();
         let ids = Rc::clone(&id_cache);
+        let meta = Rc::clone(&meta);
         let ranking_config = Rc::clone(&ranking_config);
         let ui_refresh = ui.clone();
         Rc::new(move || {
@@ -593,7 +598,15 @@ fn activate(
                 .as_ref()
                 .map(|store| store.as_ref() as &dyn HistoryRepository);
             let now_millis = now_millis();
-            let results = rank_items(&apps, &ids, &text, history, &ranking_config, now_millis);
+            let results = rank_items(
+                &apps,
+                &ids,
+                &meta,
+                &text,
+                history,
+                &ranking_config,
+                now_millis,
+            );
             listbox.remove_all();
             for item in &results {
                 let row = ui::row::ResultRow::from_item(item);

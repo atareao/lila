@@ -14,12 +14,12 @@
 
 use std::collections::HashMap;
 
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
 use crate::history::{HistoryRepository, Usage, frequency_score, recency_score};
-use crate::models::{Config, IdCache, Item};
+use crate::models::{Config, IdCache, Item, MetadataCache};
 
+use super::application::best_fuzzy_match;
 use super::filter_items;
 
 /// Uso nulo con el que se puntúa un ítem sin historial registrado.
@@ -37,15 +37,23 @@ const NO_USAGE: Usage = Usage {
 /// vacía, el término difuso es `0.0` para todos y ordenan frecuencia y recencia.
 /// El resultado se recorta a `cfg.max_results` en todas las rutas.
 ///
+/// El término difuso es el máximo de la coincidencia contra el nombre del ítem,
+/// **cada una** de sus palabras clave y **cada una** de sus categorías: un ítem
+/// se encuentra igual por metadatos que por nombre, sin penalización. Los
+/// metadatos se resuelven con [`MetadataCache`], de modo que cada `.desktop` se
+/// lee como máximo una vez por ruta y sesión sea cual sea el número de pulsaciones.
+///
 /// `ids` memoiza el id canónico de cada ítem: se consulta una vez por ítem y
 /// pulsación en lugar de canonicalizar la ruta cada vez (ver [`IdCache`]). El
 /// historial completo se carga una sola vez por búsqueda, nunca por ítem.
 ///
 /// Si `cfg.history_enabled` es `false` o no hay repositorio de historial, el
-/// orden es el de [`filter_items`] (solo coincidencia difusa).
+/// orden es el de [`filter_items`] (solo coincidencia difusa, con los mismos
+/// ámbitos de nombre, palabras clave y categorías).
 pub fn rank_items(
     items: &[Item],
     ids: &IdCache,
+    meta: &MetadataCache,
     query: &str,
     history: Option<&dyn HistoryRepository>,
     cfg: &Config,
@@ -61,16 +69,16 @@ pub fn rank_items(
     }
 
     if !cfg.history_enabled {
-        return cap(filter_items(items, query), cfg.max_results);
+        return cap(filter_items(items, query, meta), cfg.max_results);
     }
     let Some(history) = history else {
-        return cap(filter_items(items, query), cfg.max_results);
+        return cap(filter_items(items, query, meta), cfg.max_results);
     };
     let usage_by_id: HashMap<String, Usage> = match history.load_all() {
         Ok(all) => all.into_iter().collect(),
         Err(err) => {
             tracing::warn!("No se pudo cargar el historial, se usa solo el difuso: {err}");
-            return cap(filter_items(items, query), cfg.max_results);
+            return cap(filter_items(items, query, meta), cfg.max_results);
         }
     };
 
@@ -82,7 +90,7 @@ pub fn rank_items(
             let fuzzy = if query.is_empty() {
                 0.0
             } else {
-                matcher.fuzzy_match(item.name(), query)? as f64
+                best_fuzzy_match(item, query, meta, &matcher)? as f64
             };
             let usage = usage_by_id.get(&ids.id(item)).unwrap_or(&NO_USAGE);
             let score = cfg.fuzzy_weight * fuzzy
@@ -105,6 +113,7 @@ mod tests {
     use crate::history::{HistoryError, HistoryRepository, Result as HistoryResult, Usage};
     use crate::models::Item;
     use applications::App;
+    use fuzzy_matcher::FuzzyMatcher;
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
     use std::fs;
@@ -233,6 +242,37 @@ mod tests {
         })
     }
 
+    /// `App` con un `.desktop` real dentro de `dir` y los metadatos indicados
+    /// (la clave se omite del fichero cuando es `None`).
+    ///
+    /// `Exec` apunta a un binario existente porque GLib descarta los `.desktop`
+    /// cuyo ejecutable no resuelve.
+    fn app_with_metadata(
+        dir: &std::path::Path,
+        file: &str,
+        name: &str,
+        keywords: Option<&str>,
+        categories: Option<&str>,
+    ) -> Item {
+        let path = dir.join(file);
+        let mut body =
+            format!("[Desktop Entry]\nType=Application\nName={name}\nExec=/usr/bin/env\n");
+        if let Some(keywords) = keywords {
+            body.push_str(&format!("Keywords={keywords}\n"));
+        }
+        if let Some(categories) = categories {
+            body.push_str(&format!("Categories={categories}\n"));
+        }
+        fs::write(&path, body).expect("write");
+
+        Item::App(App {
+            name: name.to_string(),
+            icon_path: None,
+            app_path_exe: None,
+            app_desktop_path: path,
+        })
+    }
+
     /// [TDD-RED-B2-05] La frecuencia desempata dos coincidencias idénticas.
     #[test]
     fn frequency_breaks_ties_between_equally_matching_items() {
@@ -243,6 +283,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "fire",
             Some(&history),
             &Config::default(),
@@ -262,6 +303,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "",
             Some(&history),
             &Config::default(),
@@ -289,6 +331,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "ch",
             Some(&history),
             &Config::default(),
@@ -312,6 +355,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "app",
             Some(&MemoryHistory::default()),
             &config,
@@ -331,17 +375,19 @@ mod tests {
             history_enabled: false,
             ..Config::default()
         };
+        let meta = MetadataCache::default();
 
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &meta,
             "",
             Some(&history),
             &config,
             NOW,
         );
 
-        assert_eq!(names(&ranked), names(&filter_items(&items, "")));
+        assert_eq!(names(&ranked), names(&filter_items(&items, "", &meta)));
         assert_eq!(names(&ranked), vec!["Firefox", "Gimp"]);
     }
 
@@ -360,6 +406,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "app",
             Some(&MemoryHistory::default()),
             &config,
@@ -377,6 +424,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "fir",
             None,
             &Config::default(),
@@ -401,6 +449,7 @@ mod tests {
         let by_fuzzy = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "term",
             Some(&history),
             &fuzzy_only,
@@ -414,6 +463,7 @@ mod tests {
         let by_usage = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "term",
             Some(&history),
             &usage_first,
@@ -436,6 +486,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "app",
             Some(&history),
             &Config::default(),
@@ -460,6 +511,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "",
             Some(&history),
             &Config::default(),
@@ -484,6 +536,7 @@ mod tests {
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &MetadataCache::default(),
             "",
             Some(&history),
             &Config::default(),
@@ -514,8 +567,17 @@ mod tests {
         let linked_id = items[1].id();
         let history = MemoryHistory::with(&[(linked_id.as_str(), usage(9, NOW))]);
         let cache = IdCache::default();
+        let meta = MetadataCache::default();
 
-        let before = rank_items(&items, &cache, "", Some(&history), &Config::default(), NOW);
+        let before = rank_items(
+            &items,
+            &cache,
+            &meta,
+            "",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
         assert_eq!(names(&before), vec!["Linked", "Plain"]);
 
         // El destino desaparece y el enlace queda colgado: sin caché `id()` cae
@@ -527,7 +589,15 @@ mod tests {
             "fixture: el id sin caché deja de ser canónico"
         );
 
-        let after = rank_items(&items, &cache, "", Some(&history), &Config::default(), NOW);
+        let after = rank_items(
+            &items,
+            &cache,
+            &meta,
+            "",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
         assert_eq!(names(&after), vec!["Linked", "Plain"]);
     }
 
@@ -542,17 +612,19 @@ mod tests {
             max_results: 2,
             ..Config::default()
         };
+        let meta = MetadataCache::default();
 
         let ranked = rank_items(
             &items,
             &IdCache::default(),
+            &meta,
             "app",
             Some(&FailingHistory),
             &config,
             NOW,
         );
 
-        let fuzzy_order = filter_items(&items, "app");
+        let fuzzy_order = filter_items(&items, "app", &meta);
         let expected: Vec<&str> = names(&fuzzy_order)
             .into_iter()
             .take(config.max_results)
@@ -560,5 +632,85 @@ mod tests {
 
         assert_eq!(names(&ranked), expected);
         assert_eq!(ranked.len(), config.max_results);
+    }
+
+    /// [TDD-RED-A2-08] Con el historial activo, una app que solo coincide por
+    /// una palabra clave (ausente de su nombre) entra en los resultados
+    #[test]
+    fn keyword_only_match_is_ranked() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let items = vec![
+            app_with_metadata(
+                tmp.path(),
+                "mail.desktop",
+                "Thunderbird",
+                Some("correo;"),
+                Some("Network;"),
+            ),
+            app_with_metadata(
+                tmp.path(),
+                "cheese.desktop",
+                "Cheese",
+                None,
+                Some("Graphics;"),
+            ),
+        ];
+        let meta = MetadataCache::default();
+
+        let ranked = rank_items(
+            &items,
+            &IdCache::default(),
+            &meta,
+            "correo",
+            Some(&MemoryHistory::default()),
+            &Config::default(),
+            NOW,
+        );
+
+        assert_eq!(names(&ranked), vec!["Thunderbird"]);
+    }
+
+    /// [TDD-RED-A2-09] Una app cuyo `.desktop` no declara `Keywords` ni
+    /// `Categories` se puntúa exactamente como antes: solo por su nombre
+    #[test]
+    fn app_without_metadata_is_ranked_by_name_only() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let items = vec![app_with_metadata(
+            tmp.path(),
+            "bare.desktop",
+            "Firefox",
+            None,
+            None,
+        )];
+        let meta = MetadataCache::default();
+        let history = MemoryHistory::default();
+
+        assert!(meta.keywords(&items[0]).is_empty(), "fixture: sin Keywords");
+        assert!(
+            meta.categories(&items[0]).is_empty(),
+            "fixture: sin Categories"
+        );
+
+        let by_name = rank_items(
+            &items,
+            &IdCache::default(),
+            &meta,
+            "fir",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
+        assert_eq!(names(&by_name), vec!["Firefox"]);
+
+        let unmatched = rank_items(
+            &items,
+            &IdCache::default(),
+            &meta,
+            "photos",
+            Some(&history),
+            &Config::default(),
+            NOW,
+        );
+        assert!(unmatched.is_empty());
     }
 }

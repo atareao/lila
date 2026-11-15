@@ -1,4 +1,4 @@
-use super::super::models::Item;
+use super::super::models::{Item, MetadataCache};
 use super::Find;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -13,7 +13,7 @@ impl Find for EmptyFinder {
     fn update(&mut self) {
         debug!("Updating EmptyFinder");
     }
-    fn search(&self, _query: &str) -> Vec<Item> {
+    fn search(&self, _query: &str, _meta: &MetadataCache) -> Vec<Item> {
         debug!("Searching EmptyFinder");
         Vec::new()
     }

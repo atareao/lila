@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::super::models::Item;
+use super::super::models::{Item, MetadataCache};
 use super::{ApplicationFinder, EmptyFinder};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,10 +24,10 @@ impl Finder {
         }
     }
 
-    pub fn search(&self, query: &str) -> Vec<Item> {
+    pub fn search(&self, query: &str, meta: &MetadataCache) -> Vec<Item> {
         match self {
-            Finder::EmptyFinder(finder) => finder.search(query),
-            Finder::ApplicationFinder(finder) => finder.search(query),
+            Finder::EmptyFinder(finder) => finder.search(query, meta),
+            Finder::ApplicationFinder(finder) => finder.search(query, meta),
         }
     }
 }
@@ -41,5 +41,5 @@ impl Default for Finder {
 pub trait Find {
     fn init(&mut self);
     fn update(&mut self);
-    fn search(&self, query: &str) -> Vec<Item>;
+    fn search(&self, query: &str, meta: &MetadataCache) -> Vec<Item>;
 }

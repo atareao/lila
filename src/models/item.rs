@@ -59,38 +59,43 @@ impl Item {
 
     /// Palabras clave derivadas del campo `Keywords` del `.desktop`.
     /// Devuelve un vector vacío si no se puede cargar.
-    // TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-    #[allow(dead_code)]
     pub fn keywords(&self) -> Vec<String> {
         match self {
             Item::App(app) => DesktopAppInfo::from_filename(&app.app_desktop_path)
-                .map(|info| {
-                    info.keywords()
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<String>>()
-                })
+                .map(|info| keywords_of(&info))
                 .unwrap_or_default(),
         }
     }
 
     /// Categorías derivadas del campo `Categories` del `.desktop`.
     /// Devuelve un vector vacío si no se puede cargar.
-    // TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-    #[allow(dead_code)]
     pub fn categories(&self) -> Vec<String> {
         match self {
             Item::App(app) => DesktopAppInfo::from_filename(&app.app_desktop_path)
-                .and_then(|info| info.categories())
-                .map(|categories| split_desktop_list(&categories))
+                .map(|info| categories_of(&info))
                 .unwrap_or_default(),
         }
     }
 }
 
+/// Palabras clave declaradas por un `.desktop` ya cargado (`Keywords`).
+///
+/// Es la extracción que comparten [`Item::keywords`] y [`MetadataCache`], para
+/// que la versión memorizada no pueda divergir de la directa.
+fn keywords_of(info: &DesktopAppInfo) -> Vec<String> {
+    info.keywords().into_iter().map(String::from).collect()
+}
+
+/// Categorías declaradas por un `.desktop` ya cargado (`Categories`).
+///
+/// Es la extracción que comparten [`Item::categories`] y [`MetadataCache`].
+fn categories_of(info: &DesktopAppInfo) -> Vec<String> {
+    info.categories()
+        .map(|categories| split_desktop_list(&categories))
+        .unwrap_or_default()
+}
+
 /// Divide una lista estilo `.desktop` (`a;b;c;`) en elementos no vacíos
-// TODO(core-lanzamiento): se consumirá al cablear la UI/historial (tareas 3.x/4.x). Retirar este allow entonces.
-#[allow(dead_code)]
 fn split_desktop_list(value: &str) -> Vec<String> {
     value
         .split(';')
@@ -144,6 +149,84 @@ impl IdCache {
             .borrow_mut()
             .insert(path.to_path_buf(), canonical.clone());
         canonical
+    }
+}
+
+/// Metadatos de un `.desktop` que participan en la búsqueda.
+#[derive(Debug, Clone)]
+struct Metadata {
+    keywords: Vec<String>,
+    categories: Vec<String>,
+}
+
+/// Caché de palabras clave y categorías de `.desktop` por ruta.
+///
+/// [`Item::keywords`] y [`Item::categories`] abren el `.desktop` con
+/// `DesktopAppInfo` en cada llamada, y eso es E/S: el ranking consulta ambos
+/// metadatos de *todos* los ítems en *cada* pulsación, así que sin caché la
+/// misma ruta se leería decenas de veces por búsqueda. Esta caché resuelve cada
+/// ruta una vez por sesión —con una sola lectura, que cubre las dos claves— y
+/// reutiliza el resultado entre búsquedas.
+///
+/// Comparte la política de [`IdCache`]: memoriza toda resolución correcta,
+/// incluido el vector vacío de una app que legítimamente no declara metadatos.
+/// Lo único que no memoriza es un fallo de lectura (`.desktop` inexistente o
+/// ilegible), que se reintenta en la siguiente consulta para que una app
+/// instalada más tarde se resuelva sin reiniciar.
+#[derive(Debug, Default)]
+pub struct MetadataCache {
+    resolved: RefCell<HashMap<PathBuf, Metadata>>,
+}
+
+impl MetadataCache {
+    /// Palabras clave de `item`, reutilizando las ya resueltas para su ruta.
+    ///
+    /// Equivale a [`Item::keywords`] pero sin repetir la E/S cuando la ruta ya
+    /// se resolvió antes.
+    pub fn keywords(&self, item: &Item) -> Vec<String> {
+        let path = item.desktop_path();
+        self.ensure_resolved(path);
+        self.resolved
+            .borrow()
+            .get(path)
+            .map(|metadata| metadata.keywords.clone())
+            .unwrap_or_else(|| item.keywords())
+    }
+
+    /// Categorías de `item`, reutilizando las ya resueltas para su ruta.
+    ///
+    /// Equivale a [`Item::categories`] pero sin repetir la E/S cuando la ruta
+    /// ya se resolvió antes.
+    pub fn categories(&self, item: &Item) -> Vec<String> {
+        let path = item.desktop_path();
+        self.ensure_resolved(path);
+        self.resolved
+            .borrow()
+            .get(path)
+            .map(|metadata| metadata.categories.clone())
+            .unwrap_or_else(|| item.categories())
+    }
+
+    /// Resuelve y memoriza los metadatos de `path` si aún no lo están.
+    ///
+    /// Una sola lectura cubre las dos claves. Si el `.desktop` no se puede
+    /// cargar no se memoriza nada: la siguiente consulta lo reintenta y, entre
+    /// tanto, [`MetadataCache::keywords`] y [`MetadataCache::categories`] caen
+    /// al respaldo de [`Item`] (vector vacío).
+    fn ensure_resolved(&self, path: &Path) {
+        if self.resolved.borrow().contains_key(path) {
+            return;
+        }
+        let Some(info) = DesktopAppInfo::from_filename(path) else {
+            return;
+        };
+        let metadata = Metadata {
+            keywords: keywords_of(&info),
+            categories: categories_of(&info),
+        };
+        self.resolved
+            .borrow_mut()
+            .insert(path.to_path_buf(), metadata);
     }
 }
 
@@ -391,5 +474,119 @@ Categories=Utility;Editor;
             item.categories(),
             vec![String::from("Utility"), String::from("Editor")]
         );
+    }
+
+    /// Escribe un `.desktop` real con los metadatos indicados.
+    ///
+    /// `Exec` apunta a un binario existente: GLib descarta los `.desktop` cuyo
+    /// ejecutable no resuelve (ver [`EXEC_BINARY`]).
+    fn write_desktop(path: &Path, name: &str, keywords: Option<&str>, categories: Option<&str>) {
+        let mut body =
+            format!("[Desktop Entry]\nType=Application\nName={name}\nExec={EXEC_BINARY}\n");
+        if let Some(keywords) = keywords {
+            body.push_str(&format!("Keywords={keywords}\n"));
+        }
+        if let Some(categories) = categories {
+            body.push_str(&format!("Categories={categories}\n"));
+        }
+        fs::write(path, body).expect("write");
+    }
+
+    /// [TDD-RED-A2-01] `MetadataCache` devuelve las palabras clave y categorías
+    /// del `.desktop`
+    #[test]
+    fn metadata_cache_returns_keywords_and_categories() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop_path = tmp.path().join("meta.desktop");
+        write_desktop(
+            &desktop_path,
+            "Meta",
+            Some("photos;image;editor;"),
+            Some("Utility;Editor;"),
+        );
+        let item = item_at(&desktop_path, "Meta");
+
+        let cache = MetadataCache::default();
+
+        assert_eq!(
+            cache.keywords(&item),
+            vec![
+                String::from("photos"),
+                String::from("image"),
+                String::from("editor")
+            ]
+        );
+        assert_eq!(
+            cache.categories(&item),
+            vec![String::from("Utility"), String::from("Editor")]
+        );
+    }
+
+    /// [TDD-RED-A2-02] `MetadataCache` memoriza cada ruta: una vez resuelta, el
+    /// `.desktop` no se vuelve a leer aunque cambie
+    #[test]
+    fn metadata_cache_memoizes_the_resolved_metadata() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop_path = tmp.path().join("memoized.desktop");
+        write_desktop(&desktop_path, "Memoized", Some("photos;"), None);
+        let item = item_at(&desktop_path, "Memoized");
+
+        let cache = MetadataCache::default();
+        assert_eq!(cache.keywords(&item), vec![String::from("photos")]);
+
+        write_desktop(&desktop_path, "Memoized", Some("photos;image;"), None);
+        assert_eq!(
+            item.keywords(),
+            vec![String::from("photos"), String::from("image")],
+            "fixture: el fichero ya declara dos palabras clave"
+        );
+        assert_eq!(
+            cache.keywords(&item),
+            vec![String::from("photos")],
+            "la caché sirve el valor memorizado, sin releer el fichero"
+        );
+    }
+
+    /// [TDD-RED-A2-03] Un vector vacío también se memoriza: la app que no declara
+    /// metadatos no se relee en cada pulsación
+    #[test]
+    fn metadata_cache_memoizes_empty_metadata() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop_path = tmp.path().join("empty.desktop");
+        write_desktop(&desktop_path, "Empty", None, None);
+        let item = item_at(&desktop_path, "Empty");
+
+        let cache = MetadataCache::default();
+        assert!(cache.keywords(&item).is_empty());
+        assert!(cache.categories(&item).is_empty());
+
+        write_desktop(&desktop_path, "Empty", Some("zzz;"), None);
+        assert_eq!(
+            item.keywords(),
+            vec![String::from("zzz")],
+            "fixture: el fichero ya declara palabras clave"
+        );
+        assert!(
+            cache.keywords(&item).is_empty(),
+            "el éxito con vector vacío se memoriza"
+        );
+    }
+
+    /// [TDD-RED-A2-04] Un fallo de lectura no se memoriza: si el `.desktop`
+    /// aparece después, la siguiente consulta ya resuelve los metadatos
+    #[test]
+    fn metadata_cache_retries_failed_resolution() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let desktop_path = tmp.path().join("late.desktop");
+        let item = item_at(&desktop_path, "Late");
+
+        let cache = MetadataCache::default();
+        assert!(cache.keywords(&item).is_empty());
+        assert!(cache.categories(&item).is_empty());
+
+        write_desktop(&desktop_path, "Late", Some("photos;"), Some("Graphics;"));
+
+        assert_eq!(cache.keywords(&item), vec![String::from("photos")]);
+        assert_eq!(cache.categories(&item), vec![String::from("Graphics")]);
     }
 }
