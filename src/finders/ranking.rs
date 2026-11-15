@@ -110,7 +110,9 @@ pub fn rank_items(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::{HistoryError, HistoryRepository, Result as HistoryResult, Usage};
+    use crate::history::{
+        CachedHistory, HistoryError, HistoryRepository, Result as HistoryResult, Usage,
+    };
     use crate::models::Item;
     use applications::App;
     use fuzzy_matcher::FuzzyMatcher;
@@ -118,6 +120,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
+    use std::rc::Rc;
     use tempfile::TempDir;
 
     /// Instante fijo para que los tests sean deterministas.
@@ -230,6 +233,34 @@ mod tests {
         fn load_all(&self) -> HistoryResult<Vec<(String, Usage)>> {
             Err(HistoryError::LockPoisoned)
         }
+    }
+
+    /// Repositorio que delega en [`MemoryHistory`] y comparte con el test el
+    /// número de cargas completas: el decorador toma posesión del repositorio,
+    /// así que la cuenta tiene que vivir fuera de él.
+    struct SharingCountingHistory {
+        inner: MemoryHistory,
+        load_all_calls: Rc<Cell<usize>>,
+    }
+
+    impl HistoryRepository for SharingCountingHistory {
+        fn record(&self, item_id: &str, now_millis: i64) -> HistoryResult<()> {
+            self.inner.record(item_id, now_millis)
+        }
+
+        fn usage(&self, item_id: &str) -> HistoryResult<Option<Usage>> {
+            self.inner.usage(item_id)
+        }
+
+        fn load_all(&self) -> HistoryResult<Vec<(String, Usage)>> {
+            self.load_all_calls.set(self.load_all_calls.get() + 1);
+            self.inner.load_all()
+        }
+    }
+
+    /// Identificadores de `items`, en orden.
+    fn ids(items: &[Item]) -> Vec<String> {
+        items.iter().map(Item::id).collect()
     }
 
     /// `App` cuyo `.desktop` es un fichero real dentro de `dir`.
@@ -712,5 +743,60 @@ mod tests {
             NOW,
         );
         assert!(unmatched.is_empty());
+    }
+
+    /// [TDD-RED-CACHE-10] Envolver el historial en [`CachedHistory`] no cambia
+    /// el orden de `rank_items` y evita recargarlo en cada búsqueda: tres
+    /// pulsaciones consultan el repositorio interno una sola vez.
+    #[test]
+    fn rank_items_with_cached_history_matches_uncached() {
+        let items = vec![
+            app_at("a", "Firefox"),
+            app_at("b", "Gimp"),
+            app_at("c", "Terminal"),
+        ];
+        let entries = [
+            (items[0].id(), usage(3, NOW)),
+            (items[2].id(), usage(9, NOW)),
+        ];
+        let fixture: Vec<(&str, Usage)> = entries.iter().map(|(id, u)| (id.as_str(), *u)).collect();
+
+        let plain = MemoryHistory::with(&fixture);
+        let load_all_calls = Rc::new(Cell::new(0));
+        let cached = CachedHistory::new(Box::new(SharingCountingHistory {
+            inner: MemoryHistory::with(&fixture),
+            load_all_calls: Rc::clone(&load_all_calls),
+        }));
+
+        let cache = IdCache::default();
+        let meta = MetadataCache::default();
+        let config = Config::default();
+
+        let mut uncached_order: Vec<Vec<String>> = Vec::new();
+        let mut cached_order: Vec<Vec<String>> = Vec::new();
+        for query in ["", "fir", "term"] {
+            uncached_order.push(ids(&rank_items(
+                &items,
+                &cache,
+                &meta,
+                query,
+                Some(&plain),
+                &config,
+                NOW,
+            )));
+            cached_order.push(ids(&rank_items(
+                &items,
+                &cache,
+                &meta,
+                query,
+                Some(&cached),
+                &config,
+                NOW,
+            )));
+        }
+
+        assert_eq!(cached_order, uncached_order);
+        assert!(!uncached_order.is_empty());
+        assert_eq!(load_all_calls.get(), 1);
     }
 }

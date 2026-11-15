@@ -19,7 +19,7 @@ use gdk::Display;
 use gtk::prelude::*;
 use gtk::{Label, ListBox, ScrolledWindow};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
-use history::{HistoryRepository, SqliteHistory};
+use history::{CachedHistory, HistoryRepository, SqliteHistory};
 use models::{Config, Css, IdCache, Item, MetadataCache};
 use std::cell::{Cell, OnceCell, RefCell};
 use std::io;
@@ -128,7 +128,9 @@ fn row_count(listbox: &ListBox) -> usize {
 /// Registra en el historial el lanzamiento de `item` si está disponible y activo.
 ///
 /// Un fallo al registrar no interrumpe el lanzamiento: solo se avisa por log.
-fn record_launch(history: Option<&SqliteHistory>, enabled: bool, item: &Item) {
+/// El registro es lo que invalida la memorización del historial, de modo que la
+/// búsqueda siguiente ya ve este lanzamiento.
+fn record_launch(history: Option<&CachedHistory>, enabled: bool, item: &Item) {
     if !enabled {
         return;
     }
@@ -362,7 +364,7 @@ impl LaunchUi {
 fn activate(
     application: &gtk::Application,
     mutex_config: &Arc<Mutex<Config>>,
-    history: Option<Rc<SqliteHistory>>,
+    history: Option<Rc<CachedHistory>>,
     ui: &LaunchUi,
 ) {
     // Una segunda activación no construye otra ventana: re-presenta la viva.
@@ -646,7 +648,10 @@ struct LaunchState {
     /// inicializados por `startup`).
     config: Arc<Mutex<Config>>,
     /// Historial de uso; `None` si la base de datos no pudo abrirse.
-    history: Option<Rc<SqliteHistory>>,
+    ///
+    /// Va envuelto en [`CachedHistory`] para que el ranking no consulte la base
+    /// de datos en cada pulsación.
+    history: Option<Rc<CachedHistory>>,
     /// Estado transitorio del dashboard (ventana, banner, `Entry`).
     ui: LaunchUi,
 }
@@ -687,7 +692,7 @@ fn main() -> io::Result<()> {
         } //🔓
         debug!("Config loaded");
         let history = match SqliteHistory::open() {
-            Ok(store) => Some(Rc::new(store)),
+            Ok(store) => Some(Rc::new(CachedHistory::new(Box::new(store)))),
             Err(err) => {
                 tracing::warn!("No se pudo abrir el historial de uso, se continúa sin él: {err}");
                 None

@@ -11,6 +11,10 @@
 //! la última vez. Sobre esos datos se calcula una puntuación que combina
 //! frecuencia y recencia, que el ranking usará más adelante.
 
+mod cache;
+
+pub use cache::CachedHistory;
+
 use std::fmt;
 use std::path::Path;
 use std::sync::Mutex;
