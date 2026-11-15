@@ -1,4 +1,4 @@
-# Handoff — lila — 2026-11-15 — Milestone 1 cerrado, PR #11 en revisión
+# Handoff — lila — 2026-11-15 — Milestone 1 cerrado, PR #11 FUSIONADO en `development`
 
 ## Objetivo
 LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lanzamiento` COMPLETADO.
@@ -10,11 +10,12 @@ LiLa = lanzador de apps Wayland (GTK4 + gtk4-layer-shell). Milestone 1 `core-lan
   - `a76aa06` 📝 docs(openspec): `openspec archive core-lanzamiento` (→ `openspec/changes/archive/2026-11-15-core-lanzamiento/` + specs en `openspec/specs/launcher/`) y `plans/PLAN-001.md` → `plans/PLAN-001-ARCHIVED.md` (E1–E3 marcadas).
 - Verificación: `cargo test` 87 verde · `cargo clippy --all-targets -- -D warnings` 0 warnings · `cargo fmt --check` OK. Auditoría `@rust-reviewer`: APROBADO.
 - Publicado: `development` creado en origin (no existía); rama `feature/core-lanzamiento` pusheada; **PR #11** a `development`. Issues **#10** y **#5** CERRADOS.
+- **PR #11 FUSIONADO** en `development` (merge commit `a845816`); rama `feature/core-lanzamiento` borrada. Rama actual de trabajo: `development`.
 
 ## Pendiente / siguiente
-- **Fusionar PR #11** `feature/core-lanzamiento` → `development` (revisión). Tras el merge, borrar la rama feature.
-- **Verificación manual pendiente (sin Wayland en CI):** `lila & lila` → `pgrep -c lila` = 1; re-presentación con foco y campo vacío; banner limpio tras error; pérdida de foco real dentro del margen de 250 ms oculta la ventana. Además Home/End, wrap-around, PageUp/PageDown y scroll-to-selected.
+- **Verificación manual pendiente en Wayland (sin Wayland en CI):** `lila & lila` → `pgrep -c lila` = 1; re-presentación con foco y campo vacío; banner limpio tras error; pérdida de foco real dentro del margen de 250 ms oculta la ventana. Además Home/End, wrap-around, PageUp/PageDown y scroll-to-selected.
 - **Follow-up diferido:** 5.3 acción DBus para atajo global del compositor (opcional).
+- **Si se hace release:** tocaría PR `development` → `main`.
 
 ## Riesgos / deuda aceptada
 - `IdCache` memoiza solo canonicalizaciones correctas; un fallo de E/S se reintenta y cae al path literal (documentado en `docs/core-lanzamiento.md` §7).
