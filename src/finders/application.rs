@@ -38,9 +38,10 @@ impl ApplicationFinder {
 }
 
 /// Filters and scores items by fuzzy matching the query against each item's
-/// name, keywords and categories.
+/// name, keywords and categories. A single-character query (counted in Unicode
+/// characters, not bytes) excludes categories; names and keywords still match.
 ///
-/// The score of an item is the **maximum** match among those scopes, so finding
+/// The score of an item is the **maximum** match among the eligible scopes, so finding
 /// a hit through a keyword is neither penalised nor rewarded against finding it
 /// through the name. An item that matches in no scope is dropped. An empty
 /// query keeps every item, unchanged.
@@ -67,8 +68,9 @@ pub fn filter_items(items: &[Item], query: &str, meta: &MetadataCache) -> Vec<It
 ///
 /// Scopes are the item's name plus **each** of its keywords and **each** of its
 /// categories, matched separately (never concatenated), and the result is their
-/// maximum. Both [`filter_items`] and [`rank_items`] use it so the fuzzy term
-/// cannot diverge between the direct and the ranked paths.
+/// maximum. For a single-character query (Unicode characters, not bytes),
+/// categories are excluded and only names and keywords are searched. Both
+/// [`filter_items`] and [`rank_items`] use it so the fuzzy term cannot diverge.
 pub(super) fn best_fuzzy_match(
     item: &Item,
     query: &str,
@@ -76,7 +78,13 @@ pub(super) fn best_fuzzy_match(
     matcher: &SkimMatcherV2,
 ) -> Option<i64> {
     let keywords = meta.keywords(item);
-    let categories = meta.categories(item);
+    // A single Unicode character is too broad to search categories (`u` would
+    // match almost every `Utility` app); only names and keywords stay in scope.
+    let categories = if query.trim().chars().count() == 1 {
+        Vec::new()
+    } else {
+        meta.categories(item)
+    };
     std::iter::once(item.name())
         .chain(keywords.iter().map(String::as_str))
         .chain(categories.iter().map(String::as_str))
@@ -229,5 +237,72 @@ mod tests {
 
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name(), "Firefox");
+    }
+
+    /// [TDD-RED-SHORT-01] En una consulta de un carácter las categorías no
+    /// participan: `u` no debe encontrar una app cuyo único match es `Utility`.
+    #[test]
+    fn filter_single_char_category_only_match_returns_empty() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let items = vec![app_with_desktop(
+            tmp.path(),
+            "terminal.desktop",
+            "Terminal",
+            Some("tools;network;"),
+            Some("Utility;"),
+        )];
+
+        let found = filter_items(&items, "u", &MetadataCache::default());
+
+        assert!(found.is_empty(), "solo coincide por Categories: {found:?}");
+    }
+
+    /// [TDD-RED-SHORT-02] La regla de consulta corta no quita el nombre.
+    #[test]
+    fn filter_single_char_still_matches_name() {
+        let items = vec![app("Terminal")];
+
+        let found = filter_items(&items, "t", &MetadataCache::default());
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name(), "Terminal");
+    }
+
+    /// [TDD-RED-SHORT-03] La regla de consulta corta no quita las palabras clave.
+    #[test]
+    fn filter_single_char_still_matches_keyword() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let items = vec![app_with_desktop(
+            tmp.path(),
+            "terminal.desktop",
+            "Terminal",
+            Some("music;"),
+            None,
+        )];
+
+        let found = filter_items(&items, "u", &MetadataCache::default());
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name(), "Terminal");
+    }
+
+    /// [TDD-RED-SHORT-04] `ñ` es un carácter Unicode aunque ocupe 2 bytes en
+    /// UTF-8, así que tampoco debe bastar con una categoría que lo contenga.
+    #[test]
+    fn filter_multibyte_single_char_does_not_match_category() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let items = vec![app_with_desktop(
+            tmp.path(),
+            "maps.desktop",
+            "Terminal",
+            Some("tools;network;"),
+            Some("España;"),
+        )];
+        assert_eq!("ñ".chars().count(), 1, "fixture: un carácter Unicode");
+        assert_eq!("ñ".len(), 2, "fixture: dos bytes UTF-8");
+
+        let found = filter_items(&items, "ñ", &MetadataCache::default());
+
+        assert!(found.is_empty(), "solo coincide por Categories: {found:?}");
     }
 }
