@@ -39,8 +39,10 @@ const NO_USAGE: Usage = Usage {
 ///
 /// El término difuso es el máximo de la coincidencia contra el nombre del ítem,
 /// **cada una** de sus palabras clave y **cada una** de sus categorías: un ítem
-/// se encuentra igual por metadatos que por nombre, sin penalización. Los
-/// metadatos se resuelven con [`MetadataCache`], de modo que cada `.desktop` se
+/// se encuentra igual por metadatos que por nombre, sin penalización. En
+/// consultas de un carácter (contado en caracteres Unicode, no bytes) las
+/// categorías se excluyen; el nombre y las palabras clave siguen participando.
+/// Los metadatos se resuelven con [`MetadataCache`], de modo que cada `.desktop` se
 /// lee como máximo una vez por ruta y sesión sea cual sea el número de pulsaciones.
 ///
 /// `ids` memoiza el id canónico de cada ítem: se consulta una vez por ítem y
@@ -49,7 +51,8 @@ const NO_USAGE: Usage = Usage {
 ///
 /// Si `cfg.history_enabled` es `false` o no hay repositorio de historial, el
 /// orden es el de [`filter_items`] (solo coincidencia difusa, con los mismos
-/// ámbitos de nombre, palabras clave y categorías).
+/// ámbitos de nombre, palabras clave y categorías, y la misma exclusión de
+/// categorías en consultas de un carácter).
 pub fn rank_items(
     items: &[Item],
     ids: &IdCache,
@@ -854,5 +857,59 @@ mod tests {
         assert_eq!(cached_order, uncached_order);
         assert!(!uncached_order.is_empty());
         assert_eq!(load_all_calls.get(), 1);
+    }
+
+    /// [TDD-RED-SHORT-05] La regla de consulta corta se aplica también en la
+    /// ruta con historial: ni la frecuencia ni la recencia deben rescatar una
+    /// app cuyo único match es una categoría.
+    #[test]
+    fn rank_single_char_category_only_match_is_excluded() {
+        let tmp = TempDir::new().expect("TempDir::new()");
+        let by_category = app_with_metadata(
+            tmp.path(),
+            "terminal.desktop",
+            "Terminal",
+            Some("tools;network;"),
+            Some("Utility;"),
+        );
+        let by_name = app_with_metadata(tmp.path(), "ubuntu.desktop", "Ubuntu", None, None);
+        let meta = MetadataCache::default();
+        assert!(
+            meta.categories(&by_category).iter().any(|c| c == "Utility"),
+            "fixture: la única coincidencia debe venir de Categories"
+        );
+        assert!(
+            meta.keywords(&by_category).iter().all(|k| !k.contains('u')),
+            "fixture: Keywords no debe contener 'u'"
+        );
+        let cfg = Config::default();
+        assert!(cfg.history_enabled, "fixture: historial habilitado");
+        assert!(cfg.frequency_weight > 0.0, "fixture: frecuencia habilitada");
+        let history = MemoryHistory::with(&[
+            (by_category.id().as_str(), usage(20, NOW)),
+            (by_name.id().as_str(), usage(20, NOW)),
+        ]);
+        let ids = IdCache::default();
+        let items = [by_category, by_name];
+
+        let ranked = rank_items(&items, &ids, &meta, "u", Some(&history), &cfg, NOW);
+
+        let ranked_names = names(&ranked);
+        assert!(
+            !ranked_names.contains(&"Terminal"),
+            "Categories no debe coincidir en consultas de un carácter: {ranked_names:?}"
+        );
+        assert!(
+            ranked_names.contains(&"Ubuntu"),
+            "Name sí debe coincidir: {ranked_names:?}"
+        );
+
+        let ranked_long = rank_items(&items, &ids, &meta, "utility", Some(&history), &cfg, NOW);
+
+        let long_names = names(&ranked_long);
+        assert!(
+            long_names.contains(&"Terminal"),
+            "Categories sí debe coincidir con 2+ caracteres: {long_names:?}"
+        );
     }
 }
