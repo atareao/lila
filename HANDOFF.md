@@ -1,23 +1,25 @@
-# Handoff — lila — 2026-11-15 — Sesión cerrada: fix del primer arranque y check del #16 fusionados en `development`
+# Handoff — lila — 2026-11-27 — #39 cerrado en `development`; queda verificación manual
 
 ## Estado
-- `development` = `df336ae`. Puerta de calidad en verde: **126 tests**, `cargo clippy --all-targets -- -D warnings` y `cargo fmt --check` limpios. Árbol limpio, sin ramas de trabajo pendientes (todas las de hoy están fusionadas).
-- Fusionado hoy: **#33** (fix del primer arranque sin `config.yml`, issue #32), **#34** y **#36** (relevos de sesión) y **#35** (`plans/PLAN-003.md` → `plans/PLAN-003-ARCHIVED.md`, `plans/PLAN-004.md` → `plans/PLAN-004-ARCHIVED.md`, con la verificación anotada en `docs/deuda-tecnica-post-m1.md`).
-- **Comprobación manual del issue #16 SUPERADA** el 2026-11-15 en Wayland (niri), automatizada con `ydotool` + `grim` y revisada a mano: `process` → **btop++** (casa por `Keywords`) y Letterpress por `ImageProcessing`; `decibels` → única fila «Reproductor de sonido» (org.gnome.Decibels, por `Keywords`); `monitor` → **btop++** (por `Categories=System;Monitor;ConsoleOnly;`); `u` casa con casi todas las apps; filtrado en vivo correcto. El issue #16 ya estaba cerrado.
-- **No hay tareas de código abiertas.**
+- `development` = `c7dc8de`. Puerta de calidad en verde: **131 tests**, `cargo clippy --all-targets -- -D warnings` y `cargo fmt --check` limpios. Árbol limpio.
+- Fusionado hoy: **#41** (`feature/short-query-filter`, issue #39), commit de merge `c7dc8de`. Auditoría de `@rust-reviewer`: APROBADO sin hallazgos bloqueantes, MAYOR ni MENOR. Issue #39 cerrado.
+- Los dos follow-ups del handoff anterior ya tienen issue: **#39** (cerrado) y **#40** (abierto, ítems con `Name` vacío).
+- `plans/PLAN-002.md` sigue sin renombrar a `-ARCHIVED`; `plans/PLAN-005.md` sigue abierto (verificación manual y archivado pendientes).
 
 ## Pendiente para la próxima sesión
-1. **Decidir si se abren issues** para los dos follow-ups nuevos: (a) la consulta de un carácter con `Categories` casa con casi todo → exigir longitud mínima de consulta o excluir categorías en consultas de 1 carácter; (b) ítems con `Name` vacío en el índice (`gnome-applications-panel.desktop`) que salen con el nombre en blanco → descartarlos o darles nombre de respaldo desde `Comment`/`GenericName`.
-2. **`plans/PLAN-002.md`** (atajo D-Bus, ya en `v0.2.0`) sigue sin renombrar a `-ARCHIVED`: decidir si se archiva ya.
-3. **A limpiar por el usuario**: el texto suelto `consoleonly` que quedó tecleado con `ydotool` en la línea de entrada de terminales al ocultarse lila (un `Super_L` del teclado real le quitó la activación). **No se envió Enter**, nada se ejecutó.
+1. **Verificación manual en Wayland del #39** (`openspec/changes/short-query-filter/tasks.md` 2.1): teclear `u` ya no inunda el listado por `Categories`; `spreadsheet` sigue encontrando la app por categoría. No automatizada sobre el escritorio del usuario.
+2. Tras esa verificación: `openspec archive short-query-filter`, marcar `tasks.md` 2.3 y renombrar `plans/PLAN-005.md` a `plans/PLAN-005-ARCHIVED.md`.
+3. Abrir feature branch para el **issue #40** (ítems con `Name` vacío): SDD + TDD antes de codear; decidir descartar vs. fallback desde `Comment`/`GenericName`.
+4. Decidir si se archiva ya **`plans/PLAN-002.md`** (atajo D-Bus, en `v0.2.0`).
+5. **A limpiar por el usuario**: texto suelto `consoleonly` tecleado con `ydotool` en la línea de entrada de terminales al ocultarse lila. No se envió Enter, nada se ejecutó.
 
 ## Punto de partida
 ```bash
 cd /data/rust/lila && git checkout development && git pull && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check
 ```
-Esperado: 126 tests verde, clippy y fmt limpios.
+Esperado: 131 tests verde, clippy y fmt limpios.
 
 ## Notas / follow-ups
-- Verificación e2e reutilizable sin tocar la config del usuario: lanzar con `XDG_CONFIG_HOME=/tmp/opencode/e2e-xdg` (copia de `config.yml` + `style.css`), teclear con `ydotool type` y capturar con `grim`. **lila se oculta al perder el foco**: teclear solo cuando tiene la activación.
+- Verificación e2e sin tocar la config del usuario: `XDG_CONFIG_HOME=/tmp/opencode/e2e-xdg`, teclear con `ydotool type`, capturar con `grim`. **lila se oculta al perder el foco**: teclear solo cuando tiene la activación.
 - Siguen abiertos de sesiones anteriores: un `config.yml` mínimo (p. ej. `width: 640`) parsea con los defaults *de tipo* de serde (`extensions: []`) → lanzador sin resultados y sin aviso; el envoltorio XDG (`Config::load()`) no tiene test unitario propio (se cubre con la función pura `load_config_from`); unificar `IdCache` con `record_launch`; `url()`/`@import` relativos del CSS.
 - Releases: `v0.2.0` en `main`. Para publicar: `gh workflow run "Prepare Release"`.
